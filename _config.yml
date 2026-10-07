@@ -1,0 +1,10 @@
+title: NijinanaSimulator
+description: >-
+  にじなな用の非公式・手動シミュレーターです。カード登録、デッキ編集、
+  盤面操作、リプレイの記録と再生に対応しています。
+lang: ja
+url: "https://nijinanasimulator.github.io"
+baseurl: ""
+plugins:
+  - jekyll-sitemap
+  - jekyll-seo-tag
