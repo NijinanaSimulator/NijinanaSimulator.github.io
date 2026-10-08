@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>デッキ管理 | NijinanaSimulator</title>
+<meta name="description" content="にじななのデッキを作成・編集してブラウザ内に保存できます。カード登録、検索、枚数の変更、デッキ画像の出力に対応しています。">
+<link rel="stylesheet" href="../app.css">
+<link rel="stylesheet" href="../deck-manager.css">
+</head>
+<body data-page="deck">
+<header class="app-header">
+<div class="brand"><span class="brand-icon" aria-hidden="true">7</span><div><div class="brand-line">にじなな シミュレーター（非公式）</div><h1>NijinanaSimulator</h1></div></div>
+<div class="header-actions"><a class="app-link" href="../">シミュレーターへ</a><button data-action="catalog">カード登録</button><button data-action="save">JSON保存</button><button data-action="load">読込</button></div>
+</header>
+<div class="subbar"><span>デッキ管理</span><span id="saveStatus" class="status">ブラウザ内の保存領域を確認中</span></div>
+<main id="deckPage" class="deck-page" aria-label="デッキ管理"></main>
+<dialog id="modal"><div class="modal-heading"><h2 id="modalTitle"></h2><div class="modal-heading-actions"><button id="modalBack" data-action="preview-return" hidden>一覧に戻る</button><button data-action="close-modal" aria-label="閉じる">閉じる</button></div></div><div id="modalContent" class="modal-content"></div></dialog>
+<input id="imagePicker" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+<input id="statePicker" type="file" accept=".json,application/json" hidden>
+<input id="cardLibraryPicker" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+<input id="replayPicker" type="file" accept=".json,application/json" hidden>
+<input id="deckTxtPicker" type="file" accept=".txt,text/plain" hidden>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="../app-navigation.js"></script>
+<script src="../app.js"></script>
+<script src="../deck-storage.js"></script>
+<script src="../deck-txt.js"></script>
+<script src="../deck-manager.js"></script>
+</body>
+</html>
