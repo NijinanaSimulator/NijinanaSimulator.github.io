@@ -583,6 +583,9 @@ dialog:has(#deckEditorResults){width:min(1120px,94vw)}
 .deck-current-pagination{display:flex;flex-shrink:0;align-items:center;justify-content:center;gap:7px;margin-top:7px;color:#7a90a2;font-size:11px;font-variant-numeric:tabular-nums}
 .deck-current-pagination>span{min-width:45px;text-align:center}
 .deck-current-pagination>button{min-width:53px;font-size:11px;padding:4px 7px}
+.deck-export-preview{max-height:64dvh;overflow:auto;border:1px solid #d6e2eb;border-radius:8px;background:#eef3f8}
+.deck-export-preview img{display:block;width:100%;height:auto}
+dialog:has(.deck-export-preview){width:min(1100px,94vw)}
 @media(min-width:901px){.deck-editor-workspace{min-height:min(540px,max(240px,calc(90dvh - 308px)))}}
 @media(max-width:900px){.deck-editor-workspace{grid-template-columns:minmax(0,1fr);gap:12px}.deck-editor-current{order:-1;contain:none}.deck-current-list{max-height:150px;flex:auto}.deck-editor-current>h3{margin-bottom:3px}}
 @media(max-width:700px){.deck-editor-filters{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.deck-editor-filters>label:first-child{grid-column:1 / -1}.deck-editor-list{max-height:min(43dvh,380px)}.deck-editor-row{grid-template-columns:31px minmax(0,1fr) 60px;gap:8px;padding:8px}.deck-editor-row>.mini-card{width:28px;height:40px}.deck-editor-pagination{justify-content:center}}
@@ -730,7 +733,7 @@ function normalizeXlsxCardColors(cell, fail) {
 function normalizeCardLibraryRows(rows, sourceName, sheetName) {
     if (!Array.isArray(rows) || rows.length > XLSX_CARD_LIMITS.rows) throw new Error("Excel の行数が読み込み上限を超えています。")
     const headerIndex = rows.findIndex(row => row.rowNumber <= 30 && Array.isArray(row.values) && xlsxCardHeaderColumns(row.values))
-    if (headerIndex < 0) throw new Error(`「${sheetName}」に必要な列（仮ID・カード名・種類・クラス・Lv・Power）が見つかりません。`)
+    if (headerIndex < 0) throw new Error(`「${sheetName}」に必要な列（ID・カード名・種類・クラス・Lv・Power）が見つかりません。`)
     const columns = xlsxCardHeaderColumns(rows[headerIndex].values)
     const effectColumn = rows[headerIndex].values.findIndex(value => ["効果", "効果テキスト", "効果本文"].includes(String(xlsxCardCellValue(value) ?? "").trim()))
     const colorColumn = rows[headerIndex].values.findIndex(value => XLSX_CARD_COLOR_HEADERS.includes(String(xlsxCardCellValue(value) ?? "").normalize("NFKC").trim().toLowerCase()))
@@ -757,10 +760,10 @@ function normalizeCardLibraryRows(rows, sourceName, sheetName) {
             if (typeof value !== "string" || value.length > maximum) fail(`${label}の文字列が正しくありません。`)
             return value.trim()
         }
-        const key = readText(values[0], "仮ID", 100, true)
-        if (!/^[A-Za-z0-9_-]+$/.test(key)) fail("仮IDには半角英数字・ハイフン・アンダーバーを使ってください。")
-        if (["__proto__", "prototype", "constructor"].includes(key)) fail("この仮IDは使用できません。別の仮IDに変更してください。")
-        if (keys.has(key)) fail(`仮ID「${key}」が重複しています。`)
+        const key = readText(values[0], "ID", 100, true)
+        if (!/^[A-Za-z0-9_-]+$/.test(key)) fail("IDには半角英数字・ハイフン・アンダーバーを使ってください。")
+        if (["__proto__", "prototype", "constructor"].includes(key)) fail("このIDは使用できません。別のIDに変更してください。")
+        if (keys.has(key)) fail(`ID「${key}」が重複しています。`)
         const name = readText(values[1], "カード名", 200, true)
         const rawType = readText(values[2], "種類", 40, true).toUpperCase()
         const rawClass = readText(values[3], "クラス", 40).toUpperCase()
@@ -988,7 +991,7 @@ async function parseCardLibraryXlsx(buffer, sourceName) {
         const rows = xlsxCardSheetRows(xlsxCardXml(await zip.read(sheet.relation.target)), strings)
         if (rows.some(row => row.rowNumber <= 30 && xlsxCardHeaderColumns(row.values))) return normalizeCardLibraryRows(rows, sourceName, sheet.name)
     }
-    throw new Error("カード一覧の列（仮ID・カード名・種類・クラス・Lv・Power）が見つかりません。")
+    throw new Error("カード一覧の列（ID・カード名・種類・クラス・Lv・Power）が見つかりません。")
 }
 
 let cardLibrary = {source: "", sourceSheet: "", cards: []}
@@ -1097,7 +1100,7 @@ function showCardLibrary(selectAll = false) {
     }
     const types = Object.entries(textCardTypes).filter(([value]) => value !== "other").map(([value, label]) => `<option value="${value}">${label}</option>`).join("")
     const classes = textCardClasses.map(value => `<option value="${value}">${value}</option>`).join("")
-    openModal("取り込み内容を確認", `<div class="card-library"><div class="modal-toolbar"><strong>${escapeHTML(cardLibrary.source)}</strong><span>${cardLibrary.cards.length}種類</span><button data-action="pick-card-library">別のExcelを選択</button></div><p class="help-note">使うカードを選んで登録してください。登録済みのカードには、未入力の効果・色を追加できます。設定済みの内容は上書きしません。IDはExcelの仮IDです。</p><div class="library-filters"><label>カード名・ID<input id="librarySearch" type="search" maxlength="200" placeholder="名前やCARD-001で検索"></label><label>カード種別<select id="libraryType"><option value="">すべて</option>${types}</select></label><label>クラス<select id="libraryClass"><option value="">すべて</option>${classes}</select></label></div><div id="libraryResults"></div></div>`, "card-library")
+    openModal("取り込み内容を確認", `<div class="card-library"><div class="modal-toolbar"><strong>${escapeHTML(cardLibrary.source)}</strong><span>${cardLibrary.cards.length}種類</span><button data-action="pick-card-library">別のExcelを選択</button></div><p class="help-note">使うカードを選んで登録してください。登録済みのカードには、未入力の効果・色を追加できます。設定済みの内容は上書きしません。ExcelのIDを使います。</p><div class="library-filters"><label>カード名・ID<input id="librarySearch" type="search" maxlength="200" placeholder="名前やCARD-001で検索"></label><label>カード種別<select id="libraryType"><option value="">すべて</option>${types}</select></label><label>クラス<select id="libraryClass"><option value="">すべて</option>${classes}</select></label></div><div id="libraryResults"></div></div>`, "card-library")
     renderLibraryResults()
     return true
 }
@@ -2429,6 +2432,7 @@ function openModal(title, html, kind) {
     if (!byId("modal").open) byId("modal").showModal()
 }
 function closeModal(recordInspection = true) {
+    if (modalKind === "deck-export") clearDeckExportPreview()
     byId("modal").close()
     modalKind = ""
     inspectContext = null
@@ -2542,7 +2546,7 @@ function catalogResultsHTML() {
     const rows = visible.map(([id, item]) => {
         const editing = catalogUi.editing === id
         const excerpt = Array.from(String(item.text || "").replace(/\s+/g, " ")).slice(0, 90).join("")
-        return `<article class="catalog-entry"><div class="catalog-summary-row">${miniature(item)}<div class="catalog-card-info"><strong>${escapeHTML(item.name)}</strong><div class="catalog-card-summary">${escapeHTML(libraryCardSummary(item))}</div>${excerpt ? `<p class="catalog-effect-excerpt">${escapeHTML(excerpt)}</p>` : ""}</div><div class="catalog-row-actions"><button class="small" data-action="catalog-edit" data-definition="${id}" aria-expanded="${editing}">${editing ? "編集を閉じる" : "編集"}</button><button class="small" data-action="delete-definition" data-definition="${id}" ${usedDefinitions.has(id) ? "disabled" : ""}>削除</button></div></div>${editing ? `<div class="catalog-editor"><label>カード名<input type="text" maxlength="200" value="${escapeHTML(item.name)}" data-catalog-name="${id}" aria-label="カード名"></label>${cardDetailFields(item, id)}<label>効果・説明<textarea maxlength="10000" data-catalog-text="${id}" aria-label="効果・説明" rows="5">${escapeHTML(item.text || "")}</textarea></label><p class="help-note">入力欄を離れると反映します。</p></div>` : ""}</article>`
+        return `<article class="catalog-entry"><div class="catalog-summary-row">${miniature(item)}<div class="catalog-card-info"><strong>${escapeHTML(item.name)}</strong><div class="catalog-card-summary">${escapeHTML(libraryCardSummary(item))}</div>${excerpt ? `<p class="catalog-effect-excerpt">${escapeHTML(excerpt)}</p>` : ""}</div><div class="catalog-row-actions"><button class="small" data-action="catalog-edit" data-definition="${id}" aria-expanded="${editing}">${editing ? "編集を閉じる" : "編集"}</button><button class="small" data-action="delete-definition" data-definition="${id}" ${usedDefinitions.has(id) ? "disabled" : ""}>削除</button></div></div>${editing ? `<div class="catalog-editor"><label>カード名<input type="text" maxlength="200" value="${escapeHTML(item.name)}" data-catalog-name="${id}" aria-label="カード名"></label><label>ID（任意）<input type="text" maxlength="100" value="${escapeHTML(item.sourceCardKey || "")}" data-catalog-id="${id}" aria-label="カードID" autocomplete="off"></label>${cardDetailFields(item, id)}<label>効果・説明<textarea maxlength="10000" data-catalog-text="${id}" aria-label="効果・説明" rows="5">${escapeHTML(item.text || "")}</textarea></label><p class="help-note">入力欄を離れると反映します。</p></div>` : ""}</article>`
     }).join("")
     const total = Object.values(state.catalog).filter(item => !isColorDefinition(item)).length
     return `<div class="catalog-summary" role="status">登録済み ${total}種類${entries.length ? ` · ${entries.length}件中 ${start + 1}〜${Math.min(start + catalogPageSize, entries.length)}件` : " · 該当するカードはありません"}</div><div class="catalog-list">${rows || `<p class="muted">${total ? "検索条件を変えてください。" : "画像・文字カードやExcelからカードを追加してください。"}</p>`}</div><div class="catalog-pagination"><button class="small" data-action="catalog-page" data-delta="-1" ${catalogUi.page === 0 ? "disabled" : ""}>前へ</button><span>${catalogUi.page + 1} / ${pages}</span><button class="small" data-action="catalog-page" data-delta="1" ${catalogUi.page + 1 >= pages ? "disabled" : ""}>次へ</button></div>`
@@ -2553,7 +2557,7 @@ function renderCatalogResults() {
 }
 function showCatalog() {
     const types = Object.entries(textCardTypes).map(([value, label]) => `<option value="${value}" ${catalogUi.cardType === value ? "selected" : ""}>${label}</option>`).join("")
-    openModal("カード登録", `<div class="modal-toolbar"><button data-action="pick-images">カード画像を複数追加</button><span class="muted">PNG / JPEG / WebP · 1ファイル10MBまで</span></div><section class="catalog-new-card"><h3>画像なしの文字カードを追加</h3><div class="control-row"><input id="newCardName" type="text" maxlength="200" placeholder="カード名" class="grow"><button data-action="add-text-card">追加</button></div>${cardDetailFields()}<textarea id="newCardText" maxlength="10000" placeholder="効果・説明" rows="3"></textarea></section><div class="catalog-filters"><label>カード名・ID<input id="catalogSearch" type="search" maxlength="200" value="${escapeHTML(catalogUi.query)}" placeholder="名前・ID・クラスで検索" autocomplete="off"></label><label>カード種別<select id="catalogType"><option value="">すべて</option>${types}</select></label></div><div id="catalogResults">${catalogResultsHTML()}</div><div class="modal-footer catalog-footer"><div class="catalog-import-actions"><button data-action="pick-card-library">Excelを取り込む</button>${cardLibrary.cards.length ? `<button data-action="card-library">読み取った一覧を開く</button>` : ""}</div><button data-action="deck-editor" class="primary">デッキ編集へ</button><button data-action="close-modal">閉じる</button></div>`, "catalog")
+    openModal("カード登録", `<div class="modal-toolbar"><button data-action="pick-images">カード画像を複数追加</button><span class="muted">PNG / JPEG / WebP · 1ファイル10MBまで</span></div><section class="catalog-new-card"><h3>画像なしの文字カードを追加</h3><div class="control-row"><input id="newCardName" type="text" maxlength="200" placeholder="カード名" class="grow"><button data-action="add-text-card">追加</button></div><div class="control-row"><label class="grow">ID（任意）<input id="newCardId" type="text" maxlength="100" placeholder="CARD-001" class="full" autocomplete="off"></label></div>${cardDetailFields()}<textarea id="newCardText" maxlength="10000" placeholder="効果・説明" rows="3"></textarea></section><div class="catalog-filters"><label>カード名・ID<input id="catalogSearch" type="search" maxlength="200" value="${escapeHTML(catalogUi.query)}" placeholder="名前・ID・クラスで検索" autocomplete="off"></label><label>カード種別<select id="catalogType"><option value="">すべて</option>${types}</select></label></div><div id="catalogResults">${catalogResultsHTML()}</div><div class="modal-footer catalog-footer"><div class="catalog-import-actions"><button data-action="pick-card-library">Excelを取り込む</button>${cardLibrary.cards.length ? `<button data-action="card-library">読み取った一覧を開く</button>` : ""}</div><button data-action="deck-editor" class="primary">デッキ編集へ</button><button data-action="close-modal">閉じる</button></div>`, "catalog")
 }
 function handleCatalogInput(element) {
     if (element.id !== "catalogSearch") return false
@@ -2591,14 +2595,36 @@ function handleCatalogAction(action, button) {
 }
 
 // CATALOG_UI_END
+function parseCardId(raw, exceptDefinition = "") {
+    const value = String(raw ?? "").trim()
+    if (!value) return ""
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(value)) throw new Error("IDは100文字以内の半角英数字・ハイフン・アンダーバーで入力してください。")
+    if (["__proto__", "prototype", "constructor"].includes(value)) throw new Error("このIDは使用できません。別のIDを入力してください。")
+    if (Object.entries(state.catalog).some(([id, item]) => id !== exceptDefinition && item.sourceCardKey === value)) throw new Error("同じIDのカードが既に登録されています。")
+    return value
+}
+
+function updateCatalogCardId(definitionId, raw) {
+    if (replay.mode === "replay" || !Object.hasOwn(state.catalog, definitionId) || isColorDefinition(state.catalog[definitionId])) return false
+    try {
+        const value = parseCardId(raw, definitionId)
+        if ((state.catalog[definitionId].sourceCardKey || "") === value) return true
+        return transact("カードのIDを変更", () => {
+            if (value) state.catalog[definitionId].sourceCardKey = value
+            else delete state.catalog[definitionId].sourceCardKey
+        })
+    } catch (error) {notify(error.message, true); return false}
+}
+
 function addTextCard() {
     const name = byId("newCardName").value.trim()
     const text = byId("newCardText").value
     if (!name) {notify("カード名を入力してください。", true); return false}
     try {
+        const sourceCardKey = parseCardId(byId("newCardId").value)
         const cardType = parseCardDetail("cardType", byId("newCardType").value || "other")
         const details = {cardType, cost: cardType === "channel" ? null : parseCardDetail("cost", byId("newCardCost").value), className: parseCardDetail("className", byId("newCardClass").value), power: parseCardDetail("power", byId("newCardPower").value), colors: cardType === "liver" ? readCardDetailColors() : []}
-        const added = transact("文字カードを登録", () => {state.catalog[uid("definition")] = {name, text, asset: "", ...details}})
+        const added = transact("文字カードを登録", () => {state.catalog[uid("definition")] = {name, text, asset: "", ...details, ...(sourceCardKey ? {sourceCardKey} : {})}})
         if (added) showCatalog()
         return added
     } catch (error) {notify(error.message, true); return false}
@@ -2761,7 +2787,7 @@ function showDeckEditor() {
     const typeOptions = Object.entries(textCardTypes).filter(([value]) => value !== "channel").map(([value, label]) => `<option value="${value}" ${deckEditorUi.cardType === value ? "selected" : ""}>${label}</option>`).join("")
     const classOptions = textCardClasses.map(value => `<option value="${value}" ${deckEditorUi.className === value ? "selected" : ""}>${value}</option>`).join("")
     const sortOptions = Object.entries(deckEditorSorts).map(([value, label]) => `<option value="${value}" ${deckEditorUi.sort === value ? "selected" : ""}>${label}</option>`).join("")
-    openModal("デッキ編集", `<div class="modal-toolbar"><label>編集する側<select id="editorPlayer">${visiblePlayerIds().map(player => `<option value="${player}" ${player === editorPlayer ? "selected" : ""}>${escapeHTML(state.players[player].name)}</option>`).join("")}</select></label><strong id="deckTotal"></strong>${state.showOpponent ? `<button data-action="deck-copy-other" class="small">この入力をもう片側へコピー</button>` : ""}</div><div class="control-group"><label for="channelDefinition">チャンネル（1枚）</label><select id="channelDefinition" class="full"><option value="" ${channel ? "" : "selected"}>未設定</option>${channelOptions}</select><p class="help-note">選んだカードをチャンネルに1枚置きます。このカードは山札の枚数に含めません。</p></div><div class="deck-editor-workspace"><div class="deck-editor-browser"><h3>カードを探す</h3><div class="deck-editor-filters"><label>カード名・ID<input id="deckEditorSearch" type="search" value="${escapeHTML(deckEditorUi.query)}" placeholder="名前やIDで検索" autocomplete="off"></label><label>カード種別<select id="deckEditorType"><option value="">すべて</option>${typeOptions}</select></label><label>クラス<select id="deckEditorClass"><option value="">すべて</option>${classOptions}</select></label><label>並び順<select id="deckEditorSort">${sortOptions}</select></label></div><div id="deckEditorResults">${deckEditorResultsHTML()}</div></div><aside class="deck-editor-current" aria-label="いまのデッキ"><h3>いまのデッキ</h3><div id="deckCurrentContents">${deckCurrentContentsHTML()}</div></aside></div><p class="help-note">公式のデッキ枚数・同名枚数・構築条件は判定しません。デッキは各500枚までです。</p><div class="modal-footer"><button data-action="catalog">カード登録</button><button data-action="apply-deck" class="primary">デッキを決定</button>${state.showOpponent ? `<button data-action="apply-both-decks">両方のデッキを決定</button>` : ""}</div><p class="help-note">反映した側の通常カードを置き換え、山札とチャンネルを作り直します。カラーカードは現在の位置に保持します。シャッフルと初期手札は基本操作から指定してください。</p>`, "deck-editor")
+    openModal("デッキ編集", `<div class="modal-toolbar"><label>編集する側<select id="editorPlayer">${visiblePlayerIds().map(player => `<option value="${player}" ${player === editorPlayer ? "selected" : ""}>${escapeHTML(state.players[player].name)}</option>`).join("")}</select></label><strong id="deckTotal"></strong>${state.showOpponent ? `<button data-action="deck-copy-other" class="small">この入力をもう片側へコピー</button>` : ""}</div><div class="control-group"><label for="channelDefinition">チャンネル（1枚）</label><select id="channelDefinition" class="full"><option value="" ${channel ? "" : "selected"}>未設定</option>${channelOptions}</select><p class="help-note">選んだカードをチャンネルに1枚置きます。このカードは山札の枚数に含めません。</p></div><div class="deck-editor-workspace"><div class="deck-editor-browser"><h3>カードを探す</h3><div class="deck-editor-filters"><label>カード名・ID<input id="deckEditorSearch" type="search" value="${escapeHTML(deckEditorUi.query)}" placeholder="名前やIDで検索" autocomplete="off"></label><label>カード種別<select id="deckEditorType"><option value="">すべて</option>${typeOptions}</select></label><label>クラス<select id="deckEditorClass"><option value="">すべて</option>${classOptions}</select></label><label>並び順<select id="deckEditorSort">${sortOptions}</select></label></div><div id="deckEditorResults">${deckEditorResultsHTML()}</div></div><aside class="deck-editor-current" aria-label="いまのデッキ"><h3>いまのデッキ</h3><div id="deckCurrentContents">${deckCurrentContentsHTML()}</div></aside></div><p class="help-note">公式のデッキ枚数・同名枚数・構築条件は判定しません。デッキは各500枚までです。</p><div class="modal-footer"><button data-action="catalog">カード登録</button><button data-action="deck-export">画像出力</button><button data-action="apply-deck" class="primary">デッキを保存</button>${state.showOpponent ? `<button data-action="apply-both-decks">両方のデッキを保存</button>` : ""}</div><p class="help-note">反映した側の通常カードを置き換え、山札とチャンネルを作り直します。カラーカードは現在の位置に保持します。シャッフルと初期手札は基本操作から指定してください。</p>`, "deck-editor")
     deckTotal()
 }
 function handleDeckEditorInput(element) {
@@ -2802,6 +2828,9 @@ function handleDeckEditorChange(element) {
     return false
 }
 function handleDeckEditorAction(action, button) {
+    if (action === "deck-export") {showDeckExportPreview(button); return true}
+    if (action === "deck-export-save") {saveDeckExportImage(); return true}
+    if (action === "deck-export-back") {clearDeckExportPreview(); showDeckEditor(); return true}
     if (["deck-current-prev", "deck-current-next"].includes(action)) {
         if (button?.disabled) return true
         collectDeckDraft()
@@ -2820,6 +2849,323 @@ function handleDeckEditorAction(action, button) {
 }
 
 // DECK_EDITOR_UI_END
+// DECK_IMAGE_EXPORT_START
+let deckExportPreviewURL = ""
+let deckExportFileName = ""
+const deckExportColors = {R: "#ed2946", O: "#ff8918", Y: "#f3c900", G: "#12ae50", B: "#149bea", I: "#3f49dd", V: "#9c35dc"}
+
+function deckExportBox(context, x, y, width, height, radius, fill, stroke = "") {
+    const r = Math.min(radius, width / 2, height / 2)
+    context.beginPath()
+    context.moveTo(x + r, y)
+    context.arcTo(x + width, y, x + width, y + height, r)
+    context.arcTo(x + width, y + height, x, y + height, r)
+    context.arcTo(x, y + height, x, y, r)
+    context.arcTo(x, y, x + width, y, r)
+    context.closePath()
+    context.fillStyle = fill
+    context.fill()
+    if (stroke) {
+        context.strokeStyle = stroke
+        context.lineWidth = 2
+        context.stroke()
+    }
+}
+
+function deckExportLines(context, value, width, maxLines = 2) {
+    const characters = Array.from(String(value ?? "").replace(/\s+/g, " ").trim() || "未設定")
+    const lines = []
+    let line = ""
+    for (const character of characters) {
+        if (line && context.measureText(line + character).width > width) {
+            lines.push(line)
+            line = character
+        } else line += character
+    }
+    if (line) lines.push(line)
+    if (lines.length <= maxLines) return lines
+    const visible = lines.slice(0, maxLines)
+    let last = visible[maxLines - 1]
+    while (last && context.measureText(last + "…").width > width) last = Array.from(last).slice(0, -1).join("")
+    visible[maxLines - 1] = last + "…"
+    return visible
+}
+
+function deckExportText(context, value, x, y, width, lineHeight, maxLines = 2) {
+    const lines = deckExportLines(context, value, width, maxLines)
+    for (const [index, line] of lines.entries()) context.fillText(line, x, y + index * lineHeight)
+    return lines.length
+}
+
+function deckExportBadge(context, x, y, count) {
+    context.save()
+    context.font = "800 23px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    const label = `×${count}`
+    const width = Math.max(53, Math.ceil(context.measureText(label).width) + 22)
+    deckExportBox(context, x, y, width, 36, 18, "#213e55")
+    context.fillStyle = "#fff"
+    context.textAlign = "center"
+    context.fillText(label, x + width / 2, y + 26)
+    context.restore()
+}
+
+function deckExportColorBands(context, item, x, y, height) {
+    const colors = liverCardColors(item)
+    if (!colors.length) return
+    const segment = (height - 61) / 7
+    for (const color of colors) {
+        const bandY = y + 38 + nijiColors.indexOf(color) * segment
+        context.fillStyle = deckExportColors[color]
+        context.fillRect(x + 7, bandY, 10, Math.max(7, segment - 3))
+        context.strokeStyle = "#354c62"
+        context.lineWidth = 1
+        context.strokeRect(x + 7, bandY, 10, Math.max(7, segment - 3))
+    }
+}
+
+function deckExportTextCard(context, item, x, y, width, height) {
+    const channel = textCardType(item) === "channel"
+    const colors = liverCardColors(item)
+    context.save()
+    const gradient = context.createLinearGradient(x, y, x + width, y + height)
+    gradient.addColorStop(0, "#fafdff")
+    gradient.addColorStop(1, channel ? "#e9eef8" : "#e7f1f8")
+    deckExportBox(context, x, y, width, height, 8, gradient, "#bacbd9")
+    deckExportColorBands(context, item, x, y, height)
+    if (!channel && item.cost !== undefined && item.cost !== null) {
+        deckExportBox(context, x + 8, y + 8, 36, 30, 6, "#e1eef8", "#b7ccdc")
+        context.fillStyle = "#325b79"
+        context.font = "800 19px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        context.textAlign = "center"
+        context.fillText(String(item.cost), x + 26, y + 30, 31)
+    }
+    if (item.className) {
+        deckExportBox(context, x + width - 42, y + 8, 34, 30, 6, "#f1ebf9", "#d3c6e0")
+        context.fillStyle = "#695982"
+        context.font = "800 19px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        context.textAlign = "center"
+        context.fillText(Array.from(item.className)[0], x + width - 25, y + 30)
+    }
+    context.fillStyle = "#b8cfde"
+    context.font = channel ? "700 63px system-ui, sans-serif" : "700 49px system-ui, sans-serif"
+    context.textAlign = "center"
+    context.fillText("◇", x + width / 2, y + height * .49)
+    context.fillStyle = "#31536e"
+    context.font = channel ? "750 29px system-ui, 'Yu Gothic', Meiryo, sans-serif" : "750 20px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    const lines = deckExportLines(context, item.name, width - (colors.length ? 46 : 30), channel ? 2 : 3)
+    const lineHeight = channel ? 36 : 25
+    const first = y + height * .59 - (lines.length - 1) * lineHeight / 2
+    for (const [index, line] of lines.entries()) context.fillText(line, x + width / 2 + (colors.length ? 6 : 0), first + index * lineHeight)
+    if (textCardType(item) === "liver" && item.power !== undefined && item.power !== null) {
+        context.font = "800 17px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        const label = String(item.power)
+        const badgeWidth = Math.max(39, Math.ceil(context.measureText(label).width) + 16)
+        deckExportBox(context, x + width - badgeWidth - 7, y + height - 30, badgeWidth, 24, 5, "#fff4db", "#dfcda7")
+        context.fillStyle = "#856a36"
+        context.fillText(label, x + width - badgeWidth / 2 - 7, y + height - 12)
+    }
+    context.restore()
+}
+
+function deckExportLoadImage(assetId) {
+    return new Promise(resolve => {
+        const source = cachedCardImageURL(assetId)
+        if (!source) return resolve(null)
+        const image = new Image()
+        image.onload = () => resolve(image)
+        image.onerror = () => resolve(null)
+        image.src = source
+    })
+}
+
+async function deckExportCard(context, item, x, y, width, height, count) {
+    const image = item.asset ? await deckExportLoadImage(item.asset) : null
+    if (image?.naturalWidth && image?.naturalHeight) {
+        deckExportBox(context, x, y, width, height, 8, "#fff", "#bacbd9")
+        const scale = Math.min((width - 4) / image.naturalWidth, (height - 4) / image.naturalHeight)
+        const imageWidth = image.naturalWidth * scale, imageHeight = image.naturalHeight * scale
+        context.drawImage(image, x + (width - imageWidth) / 2, y + (height - imageHeight) / 2, imageWidth, imageHeight)
+        deckExportColorBands(context, item, x, y, height)
+    } else deckExportTextCard(context, item, x, y, width, height)
+    deckExportBadge(context, x + (liverCardColors(item).length ? 24 : 8), y + height - 44, count)
+}
+
+async function buildDeckExportCanvas(player, entries, channel) {
+    const width = 1800, margin = 54, visualWidth = 1162, listX = 1246, listWidth = 500
+    const gridX = 79, gridY = 509, columns = 7, cardWidth = 140, cardHeight = 196, columnStep = 162, rowStep = 226
+    const listY = 490, dense = entries.length > 120
+    const measure = document.createElement("canvas").getContext("2d")
+    const rows = entries.map(({item}) => {
+        measure.font = `${dense ? 15 : 18}px system-ui, 'Yu Gothic', Meiryo, sans-serif`
+        const nameLines = deckExportLines(measure, item.name, 316, dense ? 1 : 2)
+        measure.font = `${dense ? 12 : 14}px system-ui, 'Yu Gothic', Meiryo, sans-serif`
+        const id = item.sourceCardKey ? `ID: ${item.sourceCardKey}` : "ID未設定"
+        const idLines = dense ? [id] : deckExportLines(measure, id, 316, 4)
+        return {nameLines, idLines, height: dense ? 50 : Math.max(60, nameLines.length * 23 + idLines.length * 18 + 16)}
+    })
+    const listHeight = rows.reduce((sum, row) => sum + row.height, 0)
+    const gridRows = Math.ceil(entries.length / columns)
+    const height = Math.max(1020, gridY + Math.max(1, gridRows) * rowStep + 70, listY + listHeight + 80)
+    const canvas = document.createElement("canvas")
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext("2d")
+    if (!context) throw new Error("画像の描画を開始できませんでした。")
+    context.fillStyle = "#edf3f8"
+    context.fillRect(0, 0, width, height)
+    context.fillStyle = "#23435d"
+    context.fillRect(0, 0, width, 129)
+    context.fillStyle = "#fff"
+    context.font = "800 46px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    context.fillText("デッキリスト", margin, 67)
+    context.font = "600 24px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    context.fillStyle = "#c8deed"
+    context.fillText("NijinanaSimulator", margin + 2, 105)
+    context.textAlign = "right"
+    context.font = "700 27px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    context.fillStyle = "#fff"
+    context.fillText(state.players[player].name, width - margin, 61, 560)
+    context.font = "500 20px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    context.fillStyle = "#c8deed"
+    context.fillText(`山札 ${entries.reduce((sum, entry) => sum + entry.count, 0)}枚 · ${entries.length}種類`, width - margin, 101)
+    context.textAlign = "left"
+    for (const [index, color] of nijiColors.entries()) {
+        context.fillStyle = deckExportColors[color]
+        context.fillRect(index * width / 7, 124, Math.ceil(width / 7), 5)
+    }
+    deckExportBox(context, margin, 158, visualWidth, 247, 16, "#fff", "#d5e2eb")
+    deckExportBox(context, margin, 423, visualWidth, height - 483, 16, "#fff", "#d5e2eb")
+    deckExportBox(context, listX, 158, listWidth, height - 218, 16, "#fff", "#d5e2eb")
+    context.fillStyle = "#53738b"
+    context.font = "800 19px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    context.fillText("CHANNEL / チャンネル", margin + 30, 196)
+    context.fillText("DECK / 山札", margin + 30, 464)
+    context.fillText("CARD LIST / カード一覧", listX + 27, 200)
+    context.font = "700 20px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    context.fillStyle = "#355773"
+    context.fillText("チャンネル", listX + 27, 249)
+    context.fillText(`山札　${entries.length}種類`, listX + 27, 451)
+    context.strokeStyle = "#dce6ee"
+    context.lineWidth = 2
+    context.beginPath()
+    context.moveTo(listX + 27, 416)
+    context.lineTo(listX + listWidth - 27, 416)
+    context.stroke()
+    if (channel) {
+        await deckExportCard(context, channel, margin + 31, 213, 278, 176, 1)
+        context.fillStyle = "#31536e"
+        context.font = "800 31px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        deckExportText(context, channel.name, margin + 348, 274, 755, 41, 2)
+        if (channel.sourceCardKey) {
+            context.fillStyle = "#8096a6"
+            context.font = "500 18px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+            context.fillText(channel.sourceCardKey, margin + 350, 374, 740)
+        }
+        context.fillStyle = "#31536e"
+        context.font = "700 22px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        deckExportText(context, channel.name, listX + 28, 307, 350, 28, 2)
+        context.fillStyle = "#788fa2"
+        context.font = "500 14px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        deckExportText(context, channel.sourceCardKey ? `ID: ${channel.sourceCardKey}` : "ID未設定", listX + 28, 362, 410, 17, 3)
+        deckExportBadge(context, listX + listWidth - 92, 279, 1)
+    } else {
+        deckExportBox(context, margin + 31, 213, 278, 176, 8, "#f3f7fa", "#d5e2eb")
+        context.fillStyle = "#899dad"
+        context.font = "700 26px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        context.fillText("チャンネル未設定", margin + 350, 316)
+        context.font = "600 20px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        context.fillText("未設定", listX + 28, 308)
+    }
+    if (!entries.length) {
+        context.fillStyle = "#899dad"
+        context.font = "600 24px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        context.fillText("山札にカードがありません", margin + 30, 563)
+    }
+    for (const [index, entry] of entries.entries()) {
+        const x = gridX + index % columns * columnStep
+        const y = gridY + Math.floor(index / columns) * rowStep
+        await deckExportCard(context, entry.item, x, y, cardWidth, cardHeight, entry.count)
+        context.fillStyle = "#8196a7"
+        context.font = "600 15px system-ui, sans-serif"
+        context.textAlign = "right"
+        context.fillText(String(index + 1).padStart(2, "0"), x + cardWidth - 2, y + cardHeight + 19)
+        context.textAlign = "left"
+    }
+    let rowY = listY
+    for (const [index, entry] of entries.entries()) {
+        const row = rows[index]
+        if (index % 2 === 0) deckExportBox(context, listX + 18, rowY, listWidth - 36, row.height, 6, "#f4f8fb")
+        context.fillStyle = "#8a9faf"
+        context.font = "700 15px system-ui, sans-serif"
+        context.fillText(String(index + 1).padStart(2, "0"), listX + 29, rowY + (row.height + 11) / 2)
+        context.fillStyle = "#344f65"
+        context.font = `650 ${dense ? 15 : 18}px system-ui, 'Yu Gothic', Meiryo, sans-serif`
+        const nameY = rowY + (dense ? 20 : 26)
+        for (const [lineIndex, line] of row.nameLines.entries()) context.fillText(line, listX + 69, nameY + lineIndex * (dense ? 18 : 23))
+        context.fillStyle = "#7b91a2"
+        context.font = `500 ${dense ? 12 : 14}px system-ui, 'Yu Gothic', Meiryo, sans-serif`
+        const idY = rowY + (dense ? 39 : 26 + row.nameLines.length * 23 - 4)
+        for (const [lineIndex, line] of row.idLines.entries()) context.fillText(line, listX + 69, idY + lineIndex * (dense ? 15 : 18), 316)
+        context.font = "800 19px system-ui, sans-serif"
+        context.textAlign = "right"
+        context.fillStyle = "#315d7d"
+        context.fillText(`×${entry.count}`, listX + listWidth - 28, rowY + (row.height + 13) / 2)
+        context.textAlign = "left"
+        rowY += row.height
+    }
+    context.fillStyle = "#7c92a4"
+    context.font = "500 17px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    context.fillText("NijinanaSimulator", margin, height - 27)
+    return canvas
+}
+
+function clearDeckExportPreview() {
+    if (deckExportPreviewURL) URL.revokeObjectURL(deckExportPreviewURL)
+    deckExportPreviewURL = ""
+    deckExportFileName = ""
+}
+
+async function showDeckExportPreview(button) {
+    if (modalKind !== "deck-editor" || button.disabled) return
+    collectDeckDraft()
+    const player = editorPlayer
+    const entries = (deckDrafts[player] || []).filter(entry => entry.count > 0 && isDeckMainDefinition(entry.definition))
+        .map(entry => ({item: state.catalog[entry.definition], count: entry.count}))
+    const channel = isDeckChannelDefinition(channelDrafts[player]) ? state.catalog[channelDrafts[player]] : null
+    if (!channel && !entries.length) return notify("チャンネルか山札のカードを設定してください。", true)
+    if (entries.reduce((sum, entry) => sum + entry.count, 0) > 500) return notify("デッキは500枚までです。", true)
+    const original = button.textContent
+    button.disabled = true
+    button.textContent = "画像を作成中…"
+    try {
+        const canvas = await buildDeckExportCanvas(player, entries, channel)
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"))
+        if (!blob) throw new Error("PNG画像を作成できませんでした。")
+        if (modalKind !== "deck-editor" || !byId("modal").open || !button.isConnected) return
+        clearDeckExportPreview()
+        deckExportPreviewURL = URL.createObjectURL(blob)
+        deckExportFileName = `NijinanaSimulator_deck_${player}_${new Date().toISOString().slice(0, 19).replaceAll(":", "-")}.png`
+        openModal("デッキ画像の確認", `<p class="help-note">編集中のデッキを画像にしました。内容を確認してPNGで保存できます。</p><div class="deck-export-preview"><img src="${deckExportPreviewURL}" alt="${escapeHTML(state.players[player].name)}のデッキ画像"></div><div class="modal-footer"><button data-action="deck-export-back">デッキ編集に戻る</button><button data-action="deck-export-save" class="primary">PNG画像を保存</button></div>`, "deck-export")
+    } catch (error) {
+        console.error("Deck image export failed", error)
+        notify(`デッキ画像を作成できませんでした。 ${error.message}`, true)
+    } finally {
+        if (button.isConnected) {
+            button.disabled = false
+            button.textContent = original
+        }
+    }
+}
+
+function saveDeckExportImage() {
+    if (!deckExportPreviewURL) return notify("デッキ画像がありません。", true)
+    const anchor = document.createElement("a")
+    anchor.href = deckExportPreviewURL
+    anchor.download = deckExportFileName
+    anchor.click()
+    notify("PNG画像を保存します。ブラウザの保存先を確認してください。")
+}
+// DECK_IMAGE_EXPORT_END
 function applyDeck(both = false) {
     collectDeckDraft()
     const targets = both ? visiblePlayerIds() : [state.showOpponent ? editorPlayer : "p1"]
@@ -2827,15 +3173,10 @@ function applyDeck(both = false) {
         const count = deckDrafts[player].reduce((sum, item) => sum + item.count, 0)
         if (count > 500) return notify("デッキは各500枚までです。", true)
     }
-    const populated = targets.some(player => state.zones.some(zone => state.locations[player][zone.id].some(id => !colorForCard(id))))
-    if (populated && !confirm("反映する側の通常カードを置き換えて山札とチャンネルを作り直します。カラーカードは保持します。続けますか？")) return
-    transact("デッキ編集の内容から山札とチャンネルを設定", () => {
+    if (!transact("デッキ編集の内容から山札とチャンネルを設定", () => {
         for (const player of targets) createDeckRaw(player, deckDrafts[player], channelDrafts[player])
-    })
-    closeModal()
-    ui.tab = "operation"
-    render()
-    notify("山札とチャンネルを設定しました。基本操作からシャッフル・ドロー・初期配置を実行できます。")
+    })) return
+    notify("デッキを保存し、山札とチャンネルを更新しました。")
 }
 function showSettings() {
     const playerSettings = visiblePlayerIds().map(player => `<section><label>プレイヤー名<input id="settingsName_${player}" maxlength="60" value="${escapeHTML(state.players[player].name)}"></label>${state.players[player].meters.map((meter, index) => `<label>カウンター ${index + 1} の名前<input id="settingsMeter_${player}_${index}" maxlength="50" value="${escapeHTML(meter.label)}"></label>`).join("")}</section>`).join("")
@@ -2887,7 +3228,7 @@ function deleteZone(id) {
     showSettings()
 }
 function showHelp() {
-    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>「カード登録」の「Excelを取り込む」で.xlsxファイルを選ぶと、カード一覧を表示します。内容を確認し、使うカードを選んで登録してください。カード名・種別・クラス・色・コスト・パワー・効果を読み取ります。「効果を見る」で全文を確認できます。同じ仮IDの登録済みカードには、未入力の効果・色を追加できます。設定済みの効果・色と他の項目は保持します。色はライバーカードだけに反映します。カードごとの画像の追加や、文字カードの手入力もできます。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にコスト、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、コストの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにコストはありません。未設定の項目は表示しません。登録済みカードは12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。「デッキ編集」で山札の枚数とチャンネル1枚を設定し、「デッキを決定」で反映します。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。検索一覧とは別の「いまのデッキ」欄には、編集中のカード・枚数・チャンネルを表示します。この欄でも枚数を直接変更でき、検索一覧の枚数と連動します。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。Excelは「全カード」シートを優先し、仮ID・カード名・種類・クラス・Lv・Powerと、任意のColors・効果列を読みます。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」は24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードをクリックして複数選択し、移動先と「上・先頭へ／下・末尾へ」を選んで「移動」を押します。移動先には「フィールド（横向き）」も選べます。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」でカード画像を含むJSONを保存し、「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でカード画像・デッキ・盤面・メモをファイルに保存してください。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>HTMLファイルをブラウザで開いて使います。追加ライブラリ、アカウント、外部APIは不要です。公式のカード画像やイラストは同梱していません。このアプリのデータ保存・画像変換は端末内で行い、アプリからの外部通信を許可しない設定を入れています。</p></div>`, "help")
+    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>「カード登録」の「Excelを取り込む」で.xlsxファイルを選ぶと、カード一覧を表示します。内容を確認し、使うカードを選んで登録してください。カード名・種別・クラス・色・コスト・パワー・効果を読み取ります。「効果を見る」で全文を確認できます。同じIDの登録済みカードには、未入力の効果・色を追加できます。設定済みの効果・色と他の項目は保持します。色はライバーカードだけに反映します。カードごとの画像の追加や、文字カードの手入力もできます。文字カードにはIDを入力・編集できます。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にコスト、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、コストの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにコストはありません。未設定の項目は表示しません。登録済みカードは12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。「デッキ編集」で山札の枚数とチャンネル1枚を設定し、「デッキを保存」で反映し、編集画面は開いたままにします。「画像出力」では、カード画像・名前・ID・枚数を1枚のPNGにまとめます。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。検索一覧とは別の「いまのデッキ」欄には、編集中のカード・枚数・チャンネルを表示します。この欄でも枚数を直接変更でき、検索一覧の枚数と連動します。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。Excelは「全カード」シートを優先し、ID・カード名・種類・クラス・Lv・Powerと、任意のColors・効果列を読みます。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」は24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードをクリックして複数選択し、移動先と「上・先頭へ／下・末尾へ」を選んで「移動」を押します。移動先には「フィールド（横向き）」も選べます。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」でカード画像を含むJSONを保存し、「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でカード画像・デッキ・盤面・メモをファイルに保存してください。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>HTMLファイルをブラウザで開いて使います。追加ライブラリ、アカウント、外部APIは不要です。公式のカード画像やイラストは同梱していません。このアプリのデータ保存・画像変換は端末内で行い、アプリからの外部通信を許可しない設定を入れています。</p></div>`, "help")
 }
 function checkState(candidate, images, deep = false) {
     const object = value => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -3382,7 +3723,7 @@ function handleAction(button) {
         const other = editorPlayer === "p1" ? "p2" : "p1"
         deckDrafts[other] = copy(deckDrafts[editorPlayer])
         channelDrafts[other] = channelDrafts[editorPlayer]
-        notify("もう片側の入力にコピーしました。「両方のデッキを決定」で山札を作成できます。")
+        notify("もう片側の入力にコピーしました。「両方のデッキを保存」で山札を作成できます。")
     }
     else if (action === "apply-deck") applyDeck(false)
     else if (action === "apply-both-decks") applyDeck(true)
@@ -3519,6 +3860,17 @@ document.addEventListener("change", event => {
         }
         transact("登録カードの名前を変更", () => {state.catalog[id].name = name})
     }
+    else if (element.dataset.catalogId) {
+        const id = element.dataset.catalogId
+        const previous = state.catalog[id]?.sourceCardKey || ""
+        const scrollTop = document.querySelector(".catalog-list")?.scrollTop || 0
+        if (!updateCatalogCardId(id, element.value)) element.value = previous
+        else if ((state.catalog[id]?.sourceCardKey || "") !== previous) {
+            renderCatalogResults()
+            const list = document.querySelector(".catalog-list")
+            if (list) list.scrollTop = scrollTop
+        }
+    }
     else if (element.dataset.catalogText) {
         const text = element.value
         transact("登録カードの説明を変更", () => {state.catalog[element.dataset.catalogText].text = text})
@@ -3546,6 +3898,7 @@ byId("replayPicker").addEventListener("change", async event => {
 })
 byId("modal").addEventListener("close", () => {
     if (byId("modal").open) return
+    clearDeckExportPreview()
     modalKind = ""
     inspectContext = null
     previewCardId = null
