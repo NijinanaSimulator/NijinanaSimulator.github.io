@@ -667,6 +667,107 @@ dialog:has(.deck-export-preview){width:min(1100px,94vw)}
 .card-color-fields:disabled .card-color-choice{opacity:.45;cursor:default}
 @media(max-width:600px){.card-color-choices{gap:5px}.card-color-choice{padding:5px 6px}.replay-inspection-face .liver-color-bands{--liver-color-top:27px;--liver-color-bottom:5px;--liver-color-segment:22px;--liver-color-gap:1px;left:4px;width:9px}.replay-inspection-text.text-card-face:has(.liver-color-bands){padding-left:18px;padding-right:6px}.replay-inspection-face .liver-image-power{min-width:18px;padding:1px 3px;font-size:10px}}
 
+/* Mobile layout stays separate from the desktop board. */
+.mobile-only,.mobile-nav,.mobile-panel-backdrop{display:none}
+@media(max-width:800px), (max-width:999px) and (hover:none) and (pointer:coarse){
+  html{scroll-padding-bottom:80px}
+  body{padding-bottom:calc(66px + env(safe-area-inset-bottom,0px))}
+  button:not(.card){min-height:40px;touch-action:manipulation}
+  input:not([type=checkbox]):not([type=range]),select,textarea{font-size:16px!important;min-height:40px;min-width:0}
+  input[type=checkbox]{width:18px;height:18px}
+  header.app-header{padding:12px;gap:12px}
+  .brand{min-width:0}.brand-line{font-size:10px}
+  .header-actions{width:100%;gap:6px}
+  .header-actions button{font-size:12px;padding:7px 10px;flex:1 1 auto}
+  .subbar{padding:6px 12px;font-size:10px;overflow-wrap:anywhere}
+  .layout{display:block;padding:8px;max-width:100%}
+  .table-content{gap:8px}
+  .phase-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:6px;gap:5px}
+  .phase-button{font-size:12px;padding:7px 3px}
+  .phase-button::after{display:none}
+  .player-heading{gap:8px}.meters{gap:8px}
+  .meter button{min-width:36px;line-height:1.2}.meter{font-size:12px}
+  .playmat-scroll,.opponent-colors-scroll{padding:7px;overflow:visible}
+  .playmat,[data-player-panel="p2"] .playmat{min-width:0;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:106px 172px 172px 182px 164px minmax(132px,auto);gap:7px}
+  .playmat{grid-template-areas:"colorline colorline colorline" "field field field" "set channel stage" "deck deck discard" "hand hand hand" "niji niji niji"}
+  [data-player-panel="p2"] .playmat{grid-template-rows:minmax(132px,auto) 164px 182px 172px 172px 106px;grid-template-areas:"niji niji niji" "hand hand hand" "discard deck deck" "stage channel set" "field field field" "colorline colorline colorline"}
+  .playmat .zone-head{padding:5px 7px;min-height:34px}
+  .playmat .zone-head button{font-size:11px;padding:3px 7px}
+  .playmat .zone-cards{padding:5px 7px 9px}
+  .playmat>.zone-colorline>.zone-cards,[data-player-panel="p2"] .playmat>.zone-colorline>.zone-cards{flex-direction:row;justify-content:flex-start;overflow-x:auto;overflow-y:hidden;gap:7px}
+  .playmat>.zone-colorline .colorline-slot,[data-player-panel="p2"] .playmat .colorline-slot{flex:1 0 58px;min-width:58px;width:auto;min-height:0;flex-direction:column;gap:2px}
+  .playmat>.zone-colorline .zone-head{justify-content:flex-start;min-height:25px;padding:4px 8px 0}
+  .playmat>.zone-colorline .zone-head .zone-title{flex-basis:auto;text-align:left;font-size:12px}
+  [data-player-panel="p2"] .playmat>.zone-colorline>.zone-cards{flex-direction:row-reverse}
+  .niji-grid{grid-template-columns:repeat(7,minmax(76px,1fr));min-width:0;overflow-x:auto;overflow-y:hidden;padding-bottom:4px;scrollbar-width:thin}
+  .niji-grid .zone-head{min-height:32px;padding:3px 4px 0;flex-wrap:nowrap}
+  .niji-grid .zone-head button{font-size:10px;min-height:32px;padding:2px 4px}
+  .niji-grid .zone-cards{padding:3px 4px 7px}
+  .opponent-colors,[data-player-panel="p2"] .opponent-colors{min-width:0;height:auto;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(122px,auto) 96px;grid-template-areas:"niji" "colorline";gap:7px}
+  .playmat>.niji-area:has(.card:not(.color-card)){min-height:178px}
+  .opponent-colors>.niji-area:has(.card:not(.color-card)){min-height:148px}
+  .opponent-colors>.zone-colorline{min-height:0;display:flex;flex-direction:column}
+  .opponent-colors .zone-colorline .zone-cards{flex:1;min-height:0}
+  .opponent-colors .colorline-slot{flex-basis:40px}
+  .opponent-colors .zone-colorline .zone-head{min-height:25px}
+  .opponent-colors .niji-grid{grid-template-columns:repeat(7,minmax(65px,1fr))}
+  .zone-cards,.niji-grid{overscroll-behavior-x:contain}
+  .mobile-only{display:flex}
+  button.mobile-only{display:inline-flex;align-items:center;justify-content:center}
+  aside.sidebar{display:none}
+  body.mobile-panel-open{overflow:hidden}
+  body.mobile-panel-open aside.sidebar{display:block;position:fixed;inset:auto 8px calc(66px + env(safe-area-inset-bottom,0px));z-index:62;max-height:calc(100dvh - 90px - env(safe-area-inset-bottom,0px));overflow:auto;overscroll-behavior:contain;box-shadow:0 -6px 30px #25405b30;border-radius:14px}
+  .mobile-panel-heading{position:sticky;top:0;z-index:2;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:#fff;border-bottom:1px solid #dce5ee}
+  .mobile-panel-heading strong{font-size:15px}
+  .sidebar .tabs,.sidebar .version{display:none}
+  .sidebar[data-mobile-tab="selection"] .side-head,.sidebar[data-mobile-tab="history"] .side-head{display:none}
+  .mobile-selection-tools{gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .mobile-selection-tools button{flex:1 1 auto;font-size:12px}
+  .mobile-selection-tools button[aria-pressed="true"]{background:#e5f0f8;border-color:#7196b3}
+  body.mobile-panel-open .mobile-panel-backdrop{display:block;position:fixed;inset:0;z-index:61;width:100%;height:100%;border:0;border-radius:0;background:#20364c55}
+  .mobile-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));position:fixed;z-index:63;inset:auto 0 0;gap:5px;padding:7px 8px calc(7px + env(safe-area-inset-bottom,0px));background:#fffffff5;border-top:1px solid #cbdbe7;box-shadow:0 -2px 12px #28476112}
+  .mobile-nav button{min-width:0;min-height:44px;padding:4px 2px;font-size:12px;line-height:1.35}
+  .mobile-nav button[aria-expanded="true"]{background:#dcebf6;border-color:#7196b3;color:#365974}
+  .mobile-nav .mobile-selection-count{display:block;font-size:10px;font-variant-numeric:tabular-nums}
+  #toast{z-index:64;bottom:calc(78px + env(safe-area-inset-bottom,0px));width:max-content;max-width:calc(100vw - 24px)}
+  .replay-bar{position:static;padding:9px}
+  .replay-actions{justify-content:flex-start;gap:5px}
+  .replay-actions button,.replay-transport button{font-size:12px;padding:6px 8px}
+  .replay-playback{gap:8px}.replay-timeline{flex-basis:100%}
+  .replay-cut-in{--replay-cut-in-bottom:calc(80px + env(safe-area-inset-bottom,0px))}
+  dialog,dialog:has(#deckEditorResults){width:calc(100% - 16px);max-width:760px;max-height:calc(100dvh - 24px);margin:auto}
+  dialog[open]{display:flex;flex-direction:column}
+  .modal-heading{flex-shrink:0;flex-wrap:wrap;padding:10px 12px;gap:8px}
+  .modal-heading h2{font-size:16px;overflow-wrap:anywhere;min-width:0}
+  .modal-heading-actions{margin-left:auto}
+  .modal-content{min-height:0;padding:12px;overflow:auto;overscroll-behavior:contain}
+  .modal-content .control-row>.grow{min-width:0}
+  .modal-toolbar>*{max-width:100%}
+  .big-preview{min-width:0}.big-preview>div{min-width:0;overflow-wrap:anywhere}
+  .big-preview .card .card-body{min-height:0}
+  .zone-inspect-grid{gap:12px 8px;justify-content:center;max-height:42dvh}
+  .inspect-item{width:91px}.inspect-actions{flex-wrap:wrap;min-width:0}
+  .inspect-actions>select,.inspect-actions>button{max-width:100%}
+  .deck-order-controls{flex-wrap:wrap}
+  .catalog-filters{grid-template-columns:minmax(0,1fr) minmax(105px,.65fr)}
+  .catalog-list{max-height:44dvh}.catalog-card-info{min-width:0;overflow-wrap:anywhere}
+  .deck-editor-workspace{grid-template-columns:minmax(0,1fr)}
+  .deck-editor-current{order:-1;contain:none}.deck-current-list{max-height:160px;flex:auto}
+  .deck-editor-filters{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .deck-editor-filters>label:first-child{grid-column:1/-1}
+  .deck-editor-list{max-height:42dvh}
+}
+@media(max-width:539px){
+  .playmat,[data-player-panel="p2"] .playmat{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:106px 172px 172px 160px 182px 164px minmax(132px,auto)}
+  .playmat{grid-template-areas:"colorline colorline" "field field" "set stage" "channel channel" "deck discard" "hand hand" "niji niji"}
+  [data-player-panel="p2"] .playmat{grid-template-rows:minmax(132px,auto) 164px 182px 160px 172px 172px 106px;grid-template-areas:"niji niji" "hand hand" "discard deck" "channel channel" "stage set" "field field" "colorline colorline"}
+  .playmat .zone-channel .zone-head{min-height:40px}
+  .playmat .zone-channel .zone-cards{padding:2px 7px 7px}
+  .replay-transport{flex-wrap:wrap}.replay-heading{flex-wrap:wrap}
+  .catalog-filters{grid-template-columns:minmax(0,1fr)}
+  .deck-editor-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .deck-editor-filters>label:last-child{grid-column:1/-1}
+}
 </style>
 </head>
 <body>
@@ -677,7 +778,14 @@ dialog:has(.deck-export-preview){width:min(1100px,94vw)}
 </div>
 </header>
 <div class="subbar"><span>一人回しのための非公式ツール · カード効果は手動で処理</span><span id="saveStatus" class="status">ブラウザ内の保存領域を確認中</span></div>
-<main class="layout"><aside id="sidePanel" class="sidebar"><div id="sideHead" class="side-head"></div><div id="sideTabs" class="tabs"></div><div id="sideContent" class="side-content"></div><div class="version">v0.3.0 · オフライン対応 · ライトテーマ</div></aside><div class="table-content"><section id="replayBar" class="replay-bar" aria-label="リプレイ"></section><nav id="phaseStrip" class="phase-strip" aria-label="フェイズ表示（効果処理なし）"></nav><div id="board" class="board"></div><p class="table-footnote">参考画像に合わせた配置です。フェイズは表示のみを切り替えます。</p></div></main>
+<main class="layout"><aside id="sidePanel" class="sidebar"><div class="mobile-only mobile-panel-heading"><strong id="mobilePanelTitle">基本操作</strong><button data-action="mobile-close">盤面に戻る</button></div><div id="sideHead" class="side-head"></div><div id="sideTabs" class="tabs"></div><div id="sideContent" class="side-content"></div><div class="version">v0.3.0 · オフライン対応 · ライトテーマ</div></aside><div class="table-content"><section id="replayBar" class="replay-bar" aria-label="リプレイ"></section><nav id="phaseStrip" class="phase-strip" aria-label="フェイズ表示（効果処理なし）"></nav><div id="board" class="board"></div><p class="table-footnote">参考画像に合わせた配置です。フェイズは表示のみを切り替えます。</p></div></main>
+<button class="mobile-panel-backdrop" data-action="mobile-close" aria-label="操作欄を閉じる" tabindex="-1"></button>
+<nav id="mobileNav" class="mobile-nav" aria-label="スマホ用の盤面操作">
+<button data-action="mobile-close">盤面</button>
+<button data-action="mobile-panel" data-tab="operation" aria-controls="sidePanel" aria-expanded="false">基本操作</button>
+<button data-action="mobile-panel" data-tab="selection" aria-controls="sidePanel" aria-expanded="false">選択<span id="mobileSelectionCount" class="mobile-selection-count" aria-live="polite">0枚</span></button>
+<button data-action="mobile-panel" data-tab="history" aria-controls="sidePanel" aria-expanded="false">履歴</button>
+</nav>
 <div id="replayCutIn" class="replay-cut-in" aria-live="polite" hidden></div>
 <dialog id="modal"><div class="modal-heading"><h2 id="modalTitle"></h2><div class="modal-heading-actions"><button id="modalBack" data-action="preview-return" hidden>一覧に戻る</button><button data-action="close-modal" aria-label="閉じる">閉じる</button></div></div><div id="modalContent" class="modal-content"></div></dialog>
 <input id="imagePicker" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
@@ -2312,7 +2420,7 @@ function zoneHTML(player, zone) {
     if (zone.id === "colorline") content = Array.from({length: Math.max(7, displayed.length)}, (_, index) => `<div class="colorline-slot"><span class="slot-number">${index + 1}</span>${displayed[index] ? cardHTML(displayed[index], {location}) : `<span class="slot-placeholder" aria-hidden="true"></span>`}</div>`).join("")
     if (isNiji && !displayed.length) content = `<span class="zone-empty niji-letter" aria-hidden="true">${escapeHTML(zone.id.slice(-1).toUpperCase())}</span>`
     const dropTarget = zone.id === "channel" ? "" : `data-drop-player="${player}" data-drop-zone="${zone.id}"`
-    const zoneAction = ["set", "stage", "field", "hand", "colorline", "deck", "discard"].includes(zone.id) ? "" : zone.id === "channel" ? `<button data-action="deck-editor" data-player="${player}" aria-label="チャンネルを設定">設定</button>` : `<button data-action="inspect" data-player="${player}" data-zone="${zone.id}" aria-label="${escapeHTML(zone.label)}の一覧">一覧</button>`
+    const zoneAction = ["deck", "discard"].includes(zone.id) ? `<button class="mobile-only" data-action="inspect" data-player="${player}" data-zone="${zone.id}" aria-label="${escapeHTML(zone.label)}の一覧">一覧</button>` : ["set", "stage", "field", "hand", "colorline"].includes(zone.id) ? "" : zone.id === "channel" ? `<button data-action="deck-editor" data-player="${player}" aria-label="チャンネルを設定">設定</button>` : `<button data-action="inspect" data-player="${player}" data-zone="${zone.id}" aria-label="${escapeHTML(zone.label)}の一覧">一覧</button>`
     const listHint = ["deck", "discard"].includes(zone.id) ? ` title="ダブルクリックで一覧を表示"` : ""
     return `<section class="zone zone-${zone.id} ${zone.mode === "hand" ? "hand-zone" : ""}" aria-label="${escapeHTML(zone.label)}"${listHint} ${dropTarget}><div class="zone-head"><span class="zone-title">${names[zone.id] ? `<span class="zone-en">${names[zone.id]}</span>` : ""}${escapeHTML(zone.label)}<span class="zone-count">${ids.length}</span></span>${zoneAction}</div><div class="zone-cards ${zone.mode === "pile" ? "pile" : ""}">${content}</div></section>`
 }
@@ -2333,6 +2441,52 @@ function renderBoard() {
     }).join("")
     byId("phaseStrip").innerHTML = phases.map((phase, index) => `<button class="phase-button ${state.phase === index ? "is-current" : ""}" data-action="phase" data-phase="${index}" aria-pressed="${state.phase === index}"><span>0${index + 1}</span>${phase}<small>フェイズ</small></button>`).join("")
 }
+// MOBILE_CONTROLS_START
+const mobileViewport = globalThis.matchMedia?.("(max-width:800px), (max-width:999px) and (hover:none) and (pointer:coarse)")
+const mobileUi = {panelOpen: false, multiple: false}
+function mobileSelectionTools(allowMultiple = false) {
+    const ids = selectedIds()
+    const canPreview = ids.length === 1 && (modalKind === "zone" || where(ids[0])?.zone !== "deck")
+    return `<div class="mobile-only mobile-selection-tools"><button data-action="preview-selected" data-mobile-preview ${canPreview ? "" : "disabled"}>内容を確認</button><button data-action="clear-selection" data-mobile-clear ${ids.length ? "" : "disabled"}>選択を解除</button>${allowMultiple ? `<button data-action="mobile-multiple" aria-pressed="${mobileUi.multiple}">複数選択：${mobileUi.multiple ? "オン" : "オフ"}</button>` : ""}</div>`
+}
+function syncMobileControls() {
+    const enabled = !!mobileViewport?.matches
+    if (!enabled || replay.mode === "replay") mobileUi.panelOpen = false
+    document.body.classList.toggle("mobile-panel-open", enabled && mobileUi.panelOpen)
+    byId("sidePanel").dataset.mobileTab = ui.tab
+    byId("mobilePanelTitle").textContent = {operation: "基本操作", selection: "選択したカード", history: "履歴"}[ui.tab] || "操作"
+    const count = selectedIds().length
+    byId("mobileSelectionCount").textContent = `${count}枚${mobileUi.multiple ? " · 複数" : ""}`
+    for (const button of byId("mobileNav").querySelectorAll("[data-tab]")) {
+        button.disabled = replay.mode === "replay"
+        button.setAttribute("aria-expanded", String(enabled && mobileUi.panelOpen && ui.tab === button.dataset.tab))
+    }
+    const id = selectedIds()[0]
+    for (const button of document.querySelectorAll("[data-mobile-preview]")) button.disabled = count !== 1 || (modalKind !== "zone" && where(id)?.zone === "deck")
+    for (const button of document.querySelectorAll("[data-mobile-clear]")) button.disabled = !count
+}
+function setMobilePanel(open, tab = ui.tab, restoreFocus = true) {
+    const hadPanel = mobileUi.panelOpen
+    if (open && (!mobileViewport?.matches || replay.mode === "replay")) return
+    if (open) {
+        ui.tab = ["operation", "selection", "history"].includes(tab) ? tab : "operation"
+        mobileUi.panelOpen = true
+        renderSideHead()
+        renderSideContent()
+        byId("sidePanel").scrollTop = 0
+        byId("sidePanel").querySelector('[data-action="mobile-close"]').focus({preventScroll: true})
+    } else {
+        mobileUi.panelOpen = false
+        syncMobileControls()
+        if (hadPanel && restoreFocus) byId("mobileNav").querySelector(`[data-tab="${ui.tab}"]`)?.focus({preventScroll: true})
+    }
+}
+mobileViewport?.addEventListener("change", () => {
+    const focusedInside = byId("sidePanel").contains(document.activeElement)
+    syncMobileControls()
+    if (mobileViewport.matches && focusedInside) byId("mobileNav").querySelector('[data-tab="operation"]').focus({preventScroll: true})
+})
+// MOBILE_CONTROLS_END
 // SIDE_PANEL_UI_START
 function renderSideHead() {
     byId("sideHead").innerHTML = `<h3>${state.showOpponent ? "操作するプレイヤー" : "一人回し"}</h3>${state.showOpponent ? `<div class="player-switch">${visiblePlayerIds().map(player => `<button class="${state.active === player ? "current" : ""}" data-action="active" data-player="${player}">${escapeHTML(state.players[player].name)}</button>`).join("")}</div>` : `<div>${escapeHTML(state.players.p1.name)}</div>`}<button class="small full ghost" style="margin-top:9px" data-action="toggle-opponent" aria-pressed="${state.showOpponent}">${state.showOpponent ? "相手はカラーだけ表示" : "相手の全フィールドを表示"}</button><div class="turn-line"><span>ターン表示 <strong>${state.turn}</strong></span><button class="small" data-action="next-turn">次へ</button></div><div class="help-note">「次へ」では操作側を切り替えません。</div><div class="undo-row"><button data-action="undo" ${undoStack.length ? "" : "disabled"}>元に戻す</button><button data-action="redo" ${redoStack.length ? "" : "disabled"}>やり直す</button></div>`
@@ -2391,8 +2545,9 @@ function historyHTML() {
 }
 function renderSideContent() {
     if (ui.tab === "operation") byId("sideContent").innerHTML = renderOperation()
-    else if (ui.tab === "selection") byId("sideContent").innerHTML = renderSelection()
+    else if (ui.tab === "selection") byId("sideContent").innerHTML = mobileSelectionTools(true) + renderSelection()
     else byId("sideContent").innerHTML = historyHTML()
+    syncMobileControls()
 }
 
 // SIDE_PANEL_UI_END
@@ -2422,6 +2577,7 @@ function render() {
     for (const button of document.querySelectorAll(".header-actions button")) button.disabled = replayMode && !["save", "help"].includes(button.dataset.action)
 }
 function openModal(title, html, kind) {
+    if (mobileUi.panelOpen) setMobilePanel(false, ui.tab, false)
     if (kind !== "preview") previewReturnContext = null
     byId("modalTitle").textContent = title
     byId("modalContent").innerHTML = html
@@ -2506,7 +2662,7 @@ function renderZoneInspector() {
     const deckDrop = zone === "deck" && limit === null ? ` data-drop-player="${player}" data-drop-zone="deck" data-inspector-drop="true"` : ""
     const deckOrder = zone === "deck" && limit === null ? `<div class="deck-order-controls"><label>山札内の位置（上から）<input id="inspectDeckPosition" type="number" min="1" max="${all.length}" value="1"></label><button data-action="inspect-reorder" class="small" ${all.length ? "" : "disabled"}>選択カードを移動</button></div>` : ""
     byId("modalTitle").textContent = `${state.players[player].name} / ${zoneById(zone).label}`
-    byId("modalContent").innerHTML = `<div class="modal-toolbar"><span>${summary}</span><button class="small" data-action="inspect-select-all" ${visible.length ? "" : "disabled"}>表示中をすべて選択</button>${limit !== null ? `<button class="small" data-action="inspect-show-all">すべて見る</button>` : ""}</div>${zone === "colorline" ? `<p class="help-note">カラーカードはダブルクリックで表裏を反転します（この一覧では表面を表示します）。</p>` : ""}<div class="zone-inspect-grid"${deckDrop}>${rows || `<p class="muted">カードがありません。</p>`}</div><div class="zone-inspect-pagination"><span class="zone-inspect-range">${range}</span><button class="small" data-action="inspect-page-prev" ${inspectContext.page === 0 ? "disabled" : ""}>前へ</button><span>${inspectContext.page + 1} / ${pages}</span><button class="small" data-action="inspect-page-next" ${inspectContext.page + 1 >= pages ? "disabled" : ""}>次へ</button></div>${deckOrder}<div class="inspect-actions"><span id="inspectSelectedCount">${selectedIds().length}枚選択</span>${moves}</div>`
+    byId("modalContent").innerHTML = `<div class="modal-toolbar"><span>${summary}</span><button class="small" data-action="inspect-select-all" ${visible.length ? "" : "disabled"}>表示中をすべて選択</button>${limit !== null ? `<button class="small" data-action="inspect-show-all">すべて見る</button>` : ""}</div>${mobileSelectionTools()}${zone === "colorline" ? `<p class="help-note">カラーカードはダブルクリックで表裏を反転します（この一覧では表面を表示します）。</p>` : ""}<div class="zone-inspect-grid"${deckDrop}>${rows || `<p class="muted">カードがありません。</p>`}</div><div class="zone-inspect-pagination"><span class="zone-inspect-range">${range}</span><button class="small" data-action="inspect-page-prev" ${inspectContext.page === 0 ? "disabled" : ""}>前へ</button><span>${inspectContext.page + 1} / ${pages}</span><button class="small" data-action="inspect-page-next" ${inspectContext.page + 1 >= pages ? "disabled" : ""}>次へ</button></div>${deckOrder}<div class="inspect-actions"><span id="inspectSelectedCount">${selectedIds().length}枚選択</span>${moves}</div>`
 }
 function handleInspectorAction(action, button) {
     if (!["inspect-page-prev", "inspect-page-next"].includes(action)) return false
@@ -3228,7 +3384,7 @@ function deleteZone(id) {
     showSettings()
 }
 function showHelp() {
-    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>「カード登録」の「Excelを取り込む」で.xlsxファイルを選ぶと、カード一覧を表示します。内容を確認し、使うカードを選んで登録してください。カード名・種別・クラス・色・コスト・パワー・効果を読み取ります。「効果を見る」で全文を確認できます。同じIDの登録済みカードには、未入力の効果・色を追加できます。設定済みの効果・色と他の項目は保持します。色はライバーカードだけに反映します。カードごとの画像の追加や、文字カードの手入力もできます。文字カードにはIDを入力・編集できます。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にコスト、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、コストの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにコストはありません。未設定の項目は表示しません。登録済みカードは12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。「デッキ編集」で山札の枚数とチャンネル1枚を設定し、「デッキを保存」で反映し、編集画面は開いたままにします。「画像出力」では、カード画像・名前・ID・枚数を1枚のPNGにまとめます。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。検索一覧とは別の「いまのデッキ」欄には、編集中のカード・枚数・チャンネルを表示します。この欄でも枚数を直接変更でき、検索一覧の枚数と連動します。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。Excelは「全カード」シートを優先し、ID・カード名・種類・クラス・Lv・Powerと、任意のColors・効果列を読みます。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」は24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードをクリックして複数選択し、移動先と「上・先頭へ／下・末尾へ」を選んで「移動」を押します。移動先には「フィールド（横向き）」も選べます。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」でカード画像を含むJSONを保存し、「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でカード画像・デッキ・盤面・メモをファイルに保存してください。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>HTMLファイルをブラウザで開いて使います。追加ライブラリ、アカウント、外部APIは不要です。公式のカード画像やイラストは同梱していません。このアプリのデータ保存・画像変換は端末内で行い、アプリからの外部通信を許可しない設定を入れています。</p></div>`, "help")
+    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>「カード登録」の「Excelを取り込む」で.xlsxファイルを選ぶと、カード一覧を表示します。内容を確認し、使うカードを選んで登録してください。カード名・種別・クラス・色・コスト・パワー・効果を読み取ります。「効果を見る」で全文を確認できます。同じIDの登録済みカードには、未入力の効果・色を追加できます。設定済みの効果・色と他の項目は保持します。色はライバーカードだけに反映します。カードごとの画像の追加や、文字カードの手入力もできます。文字カードにはIDを入力・編集できます。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にコスト、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、コストの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにコストはありません。未設定の項目は表示しません。登録済みカードは12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。「デッキ編集」で山札の枚数とチャンネル1枚を設定し、「デッキを保存」で反映し、編集画面は開いたままにします。「画像出力」では、カード画像・名前・ID・枚数を1枚のPNGにまとめます。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。検索一覧とは別の「いまのデッキ」欄には、編集中のカード・枚数・チャンネルを表示します。この欄でも枚数を直接変更でき、検索一覧の枚数と連動します。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。Excelは「全カード」シートを優先し、ID・カード名・種類・クラス・Lv・Powerと、任意のColors・効果列を読みます。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」は24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードをクリックして複数選択し、移動先と「上・先頭へ／下・末尾へ」を選んで「移動」を押します。移動先には「フィールド（横向き）」も選べます。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」でカード画像を含むJSONを保存し、「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でカード画像・デッキ・盤面・メモをファイルに保存してください。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><section class="mobile-only" style="flex-direction:column"><h3>スマートフォンの操作</h3><p>画面下の「基本操作」「選択」「履歴」で操作欄を開き、「盤面」で戻ります。カードをタップしてから「選択」を開くと、移動や表裏の変更、内容の確認ができます。「複数選択」をオンにするとカードをまとめて選べます。山札・ログの「一覧」からも、1枚を選んで「内容を確認」を開けます。カードが多いゾーンは横にスワイプできます。</p></section><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>HTMLファイルをブラウザで開いて使います。追加ライブラリ、アカウント、外部APIは不要です。公式のカード画像やイラストは同梱していません。このアプリのデータ保存・画像変換は端末内で行い、アプリからの外部通信を許可しない設定を入れています。</p></div>`, "help")
 }
 function checkState(candidate, images, deep = false) {
     const object = value => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -3558,6 +3714,7 @@ function operateColors(action) {
 }
 function handleAction(button) {
     const action = button.dataset.action
+    if (action === "mobile-close") {setMobilePanel(false); return}
     if (action === "replay-record") {
         if (replay.data) openModal("新しい記録を開始", `<p>現在のリプレイを新しい記録に置き換えます。残す場合は先に保存してください。</p><div class="modal-footer"><button data-action="replay-save">リプレイ保存</button><button data-action="close-modal">キャンセル</button><button data-action="replay-record-confirm" class="primary">新しく記録する</button></div>`, "replay-confirm")
         else startReplayRecording()
@@ -3579,6 +3736,14 @@ function handleAction(button) {
     if (action === "replay-dismiss-cutin") {dismissReplayCutIn(); return}
     if (handleReplayInspectionAction(action, button)) return
     if (replay.mode === "replay" && !["save", "help", "close-modal"].includes(action)) return
+    if (action === "mobile-panel") {setMobilePanel(true, button.dataset.tab); return}
+    if (action === "mobile-multiple") {
+        if (!mobileViewport?.matches) return
+        mobileUi.multiple = !mobileUi.multiple
+        renderSideContent()
+        if (mobileUi.multiple) setMobilePanel(false)
+        return
+    }
     if (handleCatalogAction(action, button) || handleDeckEditorAction(action, button) || handleInspectorAction(action, button)) return
     if (action === "catalog") showCatalog()
     else if (action === "card-library") showCardLibrary()
@@ -3772,7 +3937,7 @@ document.addEventListener("click", event => {
     if (!card) return
     const id = card.dataset.cardId
     if (!Object.hasOwn(state.cards, id)) return
-    const multiple = event.shiftKey || event.ctrlKey || event.metaKey || modalKind === "zone"
+    const multiple = event.shiftKey || event.ctrlKey || event.metaKey || modalKind === "zone" || (mobileViewport?.matches && mobileUi.multiple)
     if (!multiple) ui.selection.clear()
     if (multiple && ui.selection.has(id)) ui.selection.delete(id)
     else ui.selection.add(id)
@@ -4043,6 +4208,7 @@ document.addEventListener("drop", event => {
 document.addEventListener("scroll", () => {if (replay.mode === "replay") positionReplayCutIn()}, true)
 globalThis.addEventListener?.("resize", () => {if (replay.mode === "replay") positionReplayCutIn()})
 document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && mobileUi.panelOpen && !byId("modal").open) {event.preventDefault(); setMobilePanel(false); return}
     const editing = event.target.matches("input, textarea, select, [contenteditable=true]")
     if (editing || byId("modal").open) return
     const key = event.key.toLowerCase()
