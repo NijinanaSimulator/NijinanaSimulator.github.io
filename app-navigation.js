@@ -105,7 +105,10 @@ function initializeLocalDeckTransfer() {
         console.error('Local deck transfer failed', error)
         renderLocalDeckTransferNotice(error)
         return false
-    }).finally(() => {localDeckTransferPending = false; localDeckTransferPromise = null; renderSharedStorage()})
+    }).finally(async () => {
+        try {await initializeBundledCardsAfterTransfer()}
+        finally {localDeckTransferPending = false; localDeckTransferPromise = null; renderSharedStorage()}
+    })
     return localDeckTransferPromise
 }
 async function waitLocalDeckTransfer() {if (localDeckRoot && localDeckTransferPending) await (localDeckTransferPromise || initializeLocalDeckTransfer())}

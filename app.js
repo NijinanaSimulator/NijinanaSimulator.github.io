@@ -343,30 +343,185 @@ const libraryUi = {query: "", cardType: "", className: "", page: 0, selected: ne
 const libraryPageSize = 30
 let libraryByKey = new Map()
 let libraryImporting = false
+function normalizedCardLibrary(library) {
+    if (!library || typeof library.source !== "string" || !library.source || library.source.length > 200 || typeof library.sourceSheet !== "string" || library.sourceSheet.length > 100 || !Array.isArray(library.cards) || !library.cards.length || library.cards.length > 1000) throw new Error("カードリストの形式を確認してください。")
+    const seen = new Set()
+    const cards = library.cards.map(card => {
+        if (!card || typeof card.key !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(card.key) || ["__proto__", "constructor", "prototype"].includes(card.key) || seen.has(card.key)) throw new Error("カードのIDが不正か重複しています。")
+        seen.add(card.key)
+        if (typeof card.name !== "string" || !card.name.trim() || card.name.length > 200 || !["liver", "event", "stage", "channel"].includes(card.cardType) || !["", ...textCardClasses].includes(card.className)) throw new Error(`${card.key}の名前・種別・クラスを確認してください。`)
+        if (card.text !== undefined && (typeof card.text !== "string" || card.text.length > 10000)) throw new Error(`${card.key}の効果は10000文字以内の文章にしてください。`)
+        if (card.colors !== undefined && (!Array.isArray(card.colors) || card.colors.length > nijiColors.length || card.colors.some(color => !nijiColors.includes(color)) || new Set(card.colors).size !== card.colors.length)) throw new Error(`${card.key}の色を確認してください。`)
+        if (card.tags !== undefined && !validCardTags(card.tags)) throw new Error(`${card.key}のタグを確認してください。`)
+        for (const [field, max] of [["cost", 999], ["power", 999999]]) {
+            if (card[field] !== null && (!Number.isSafeInteger(card[field]) || card[field] < 0 || card[field] > max)) throw new Error(`${card.key}の数値を確認してください。`)
+        }
+        if (!Number.isSafeInteger(card.sourceRow) || card.sourceRow < 1 || card.sourceRow > 1048576) throw new Error(`${card.key}の行番号を確認してください。`)
+        return {key: card.key, name: card.name.trim(), text: card.text ?? "", cardType: card.cardType, className: card.className,
+            cost: card.cardType === "channel" ? null : card.cost, power: card.cardType === "liver" ? card.power : null,
+            colors: card.cardType === "liver" ? nijiColors.filter(color => card.colors?.includes(color)) : [], tags: card.cardType === "liver" ? [...(card.tags || [])] : [], sourceRow: card.sourceRow}
+    })
+    return {source: library.source, sourceSheet: library.sourceSheet, cards}
+}
 function setCardLibrary(library) {
     if (replay.mode === "replay") return false
     try {
-        if (!library || typeof library.source !== "string" || !library.source || library.source.length > 200 || typeof library.sourceSheet !== "string" || library.sourceSheet.length > 100 || !Array.isArray(library.cards) || !library.cards.length || library.cards.length > 1000) throw new Error("カードリストの形式を確認してください。")
-        const seen = new Set()
-        const cards = library.cards.map(card => {
-            if (!card || typeof card.key !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(card.key) || ["__proto__", "constructor", "prototype"].includes(card.key) || seen.has(card.key)) throw new Error("カードのIDが不正か重複しています。")
-            seen.add(card.key)
-            if (typeof card.name !== "string" || !card.name.trim() || card.name.length > 200 || !["liver", "event", "stage", "channel"].includes(card.cardType) || !["", ...textCardClasses].includes(card.className)) throw new Error(`${card.key}の名前・種別・クラスを確認してください。`)
-            if (card.text !== undefined && (typeof card.text !== "string" || card.text.length > 10000)) throw new Error(`${card.key}の効果は10000文字以内の文章にしてください。`)
-            if (card.colors !== undefined && (!Array.isArray(card.colors) || card.colors.length > nijiColors.length || card.colors.some(color => !nijiColors.includes(color)) || new Set(card.colors).size !== card.colors.length)) throw new Error(`${card.key}の色を確認してください。`)
-            if (card.tags !== undefined && !validCardTags(card.tags)) throw new Error(`${card.key}のタグを確認してください。`)
-            for (const [field, max] of [["cost", 999], ["power", 999999]]) {
-                if (card[field] !== null && (!Number.isSafeInteger(card[field]) || card[field] < 0 || card[field] > max)) throw new Error(`${card.key}の数値を確認してください。`)
-            }
-            if (!Number.isSafeInteger(card.sourceRow) || card.sourceRow < 1 || card.sourceRow > 1048576) throw new Error(`${card.key}の行番号を確認してください。`)
-            return {key: card.key, name: card.name.trim(), text: card.text ?? "", cardType: card.cardType, className: card.className,
-                cost: card.cardType === "channel" ? null : card.cost, power: card.cardType === "liver" ? card.power : null,
-                colors: card.cardType === "liver" ? nijiColors.filter(color => card.colors?.includes(color)) : [], tags: card.cardType === "liver" ? [...(card.tags || [])] : [], sourceRow: card.sourceRow}
-        })
-        cardLibrary = {source: library.source, sourceSheet: library.sourceSheet, cards}
-        libraryByKey = new Map(cards.map(card => [card.key, card]))
+        cardLibrary = normalizedCardLibrary(library)
+        libraryByKey = new Map(cardLibrary.cards.map(card => [card.key, card]))
         return true
     } catch (error) {notify(error.message, true); return false}
+}
+const BUNDLED_CARD_CSV_LIMITS = {fileBytes: 1024 * 1024, cards: 500, timeout: 10000}
+const BUNDLED_CARD_CSV_HEADERS = ["ID", "カード名", "種別", "クラス", "レベル", "パワー", "色", "タグ", "効果"]
+let bundledDefinitionsCache = null
+let bundledCardLoadError = null
+let bundledDefinitionsLoading = null
+function parseBundledCardCsv(source) {
+    if (typeof source !== "string") throw new Error("CSVの内容を読み取れませんでした。")
+    const text = source.replace(/^\uFEFF/u, ""), rows = []
+    let values = [], value = "", quoted = false, closedQuote = false, line = 1, rowLine = 1
+    const fail = message => {throw new Error("default-cards.csv " + line + "行目：" + message)}
+    const finishField = () => {values.push(value); value = ""; closedQuote = false}
+    const finishRow = () => {
+        finishField()
+        if (values.some(field => field.trim())) rows.push({rowNumber: rowLine, values})
+        values = []
+        if (rows.length > BUNDLED_CARD_CSV_LIMITS.cards + 1) fail("カードは500種類までです。")
+    }
+    for (let index = 0; index < text.length; index++) {
+        const character = text[index]
+        if (quoted) {
+            if (character === '"') {
+                if (text[index + 1] === '"') {value += '"'; index++}
+                else {quoted = false; closedQuote = true}
+            } else {
+                value += character
+                if (character === "\r") {
+                    if (text[index + 1] === "\n") {value += "\n"; index++}
+                    line++
+                } else if (character === "\n") line++
+            }
+            continue
+        }
+        if (character === ",") {finishField(); continue}
+        if (character === "\r" || character === "\n") {
+            finishRow()
+            if (character === "\r" && text[index + 1] === "\n") index++
+            line++; rowLine = line
+            continue
+        }
+        if (closedQuote) fail("引用符を閉じた後は、カンマか改行を置いてください。")
+        if (character === '"') {
+            if (value) fail("値の途中にある引用符は、値全体を引用符で囲み、二重の引用符にしてください。")
+            quoted = true
+        } else value += character
+    }
+    if (quoted) fail("引用符が閉じていません。")
+    if (value || values.length || closedQuote) finishRow()
+    if (!rows.length) throw new Error("default-cards.csvにカード情報がありません。")
+    const headers = rows[0].values.map(field => field.normalize("NFKC").trim())
+    if (headers.length !== BUNDLED_CARD_CSV_HEADERS.length || new Set(headers).size !== headers.length || BUNDLED_CARD_CSV_HEADERS.some(header => !headers.includes(header))) {
+        throw new Error("default-cards.csvの見出しは、ID・カード名・種別・クラス・レベル・パワー・色・タグ・効果の9項目にしてください。")
+    }
+    for (const row of rows.slice(1)) if (row.values.length !== headers.length) {
+        throw new Error("default-cards.csv " + row.rowNumber + "行目：列数が9項目と一致しません。効果・色・タグにカンマや改行を含める場合は引用符で囲んでください。")
+    }
+    rows[0].values = headers.map(header => header === "種別" ? "種類" : header === "パワー" ? "Power" : header)
+    return normalizedCardLibrary(normalizeCardLibraryRows(rows, "default-cards.csv", "CSV"))
+}
+function bundledCardDefinitions() {
+    if (bundledDefinitionsCache === null) throw new Error("標準カードをまだ読み込めていません。default-cards.csvを本体と同じフォルダに配置して、画面を開き直してください。")
+    return copy(bundledDefinitionsCache)
+}
+function renderBundledCardLoadNotice(error) {
+    byId("bundledCardLoadNotice")?.remove()
+    if (!error) return
+    const panel = document.createElement("section")
+    panel.id = "bundledCardLoadNotice"
+    panel.className = "dm-local-transfer-notice"
+    panel.setAttribute("role", "status")
+    const message = document.createElement("p")
+    message.textContent = error.message || String(error)
+    panel.appendChild(message)
+    const anchor = document.querySelector(".layout") || byId("deckPage") || byId("modal")
+    document.body.insertBefore(panel, anchor)
+}
+async function loadBundledCardDefinitions() {
+    if (bundledDefinitionsCache !== null) return true
+    if (bundledDefinitionsLoading) return bundledDefinitionsLoading
+    bundledDefinitionsLoading = (async () => {
+        let timeout = null
+        try {
+            if (!["http:", "https:"].includes(location.protocol)) throw new Error("標準カードを自動で読み込むには、フォルダ内のlaunch.batから起動してください。HTMLファイルを直接開く方式ではCSVを読み込めません。以前の保存データはこの画面からJSON保存できます。")
+            const url = new URL("default-cards.csv", appRootURL())
+            if (url.origin !== location.origin) throw new Error("標準カードの読み込み先がサイトと一致しません。")
+            const controller = new AbortController()
+            timeout = setTimeout(() => controller.abort(), BUNDLED_CARD_CSV_LIMITS.timeout)
+            let response
+            try {response = await fetch(url.href, {cache: "no-store", credentials: "same-origin", redirect: "error", signal: controller.signal})}
+            catch (error) {
+                if (error.name === "AbortError") throw error
+                throw new Error("default-cards.csvを取得できませんでした。接続とCSVの配置を確認して、画面を開き直してください。")
+            }
+            if (!response.ok) throw new Error("default-cards.csvを取得できませんでした（HTTP " + response.status + "）。本体と同じフォルダに配置してください。")
+            const contentLength = Number(response.headers.get("content-length"))
+            if (Number.isFinite(contentLength) && contentLength > BUNDLED_CARD_CSV_LIMITS.fileBytes) {controller.abort(); throw new Error("default-cards.csvは1MB以下にしてください。")}
+            if (!response.body?.getReader) throw new Error("このブラウザはCSVの読み込みに対応していません。PCのChromeまたはFirefoxで開いてください。")
+            const reader = response.body.getReader(), chunks = []
+            let length = 0
+            try {
+                while (true) {
+                    const chunk = await reader.read()
+                    if (chunk.done) break
+                    length += chunk.value.byteLength
+                    if (length > BUNDLED_CARD_CSV_LIMITS.fileBytes) {
+                        controller.abort()
+                        await reader.cancel().catch(() => {})
+                        throw new Error("default-cards.csvは1MB以下にしてください。")
+                    }
+                    chunks.push(chunk.value)
+                }
+            } finally {reader.releaseLock()}
+            const bytes = new Uint8Array(length)
+            let offset = 0
+            for (const chunk of chunks) {bytes.set(chunk, offset); offset += chunk.byteLength}
+            let text
+            try {text = new TextDecoder("utf-8", {fatal: true}).decode(bytes)}
+            catch {throw new Error("default-cards.csvをUTF-8形式で保存してください。")}
+            const library = parseBundledCardCsv(text)
+            bundledDefinitionsCache = library.cards.map(card => ({
+                sourceCardKey: card.key, name: card.name, text: card.text, asset: "",
+                cardType: card.cardType, className: card.className, cost: card.cost,
+                power: card.power, colors: [...card.colors], tags: [...card.tags]
+            }))
+            bundledCardLoadError = null
+            renderBundledCardLoadNotice(null)
+            return true
+        } catch (error) {
+            bundledCardLoadError = error.name === "AbortError" ? new Error("default-cards.csvの読み込みが10秒以内に完了しませんでした。接続を確認して画面を開き直してください。") : error
+            console.error("Default card CSV loading failed", bundledCardLoadError)
+            renderBundledCardLoadNotice(new Error("標準カードを読み込めませんでした。" + bundledCardLoadError.message))
+            return false
+        } finally {
+            if (timeout !== null) clearTimeout(timeout)
+        }
+    })()
+    const pending = bundledDefinitionsLoading
+    try {return await pending}
+    finally {if (bundledDefinitionsLoading === pending) bundledDefinitionsLoading = null}
+}
+function addBundledCardsToState(candidate) {
+    const definitions = bundledCardDefinitions()
+    const registered = new Set(Object.values(candidate.catalog).map(item => item.sourceCardKey).filter(Boolean))
+    const missing = definitions.filter(item => !registered.has(item.sourceCardKey))
+    if (Object.values(candidate.catalog).filter(item => !isColorDefinition(item)).length + missing.length > 500) return {added: 0, limitReached: true}
+    for (const item of missing) {
+        const base = `builtin_${item.sourceCardKey.replaceAll("-", "_")}`
+        let id = base.slice(0, 90), index = 2
+        while (Object.hasOwn(candidate.catalog, id)) {const suffix = `_${index++}`; id = `${base.slice(0, 90 - suffix.length)}${suffix}`}
+        candidate.catalog[id] = item
+    }
+    return {added: missing.length, limitReached: false}
 }
 async function readCardLibraryFile(file) {
     if (!file || libraryImporting || replay.mode === "replay") return false
@@ -850,10 +1005,13 @@ function buildReplayRecord() {
     if (!replay.data) throw new Error("記録したリプレイがありません。")
     return copy(replay.data)
 }
-function saveReplay() {
+async function saveReplay() {
     try {
-        const record = buildReplayRecord()
-        validateReplayRecord(record)
+        const legacyBackup = typeof localDeckFile !== "undefined" && localDeckFile && bundledDefinitionsCache === null
+        if (!legacyBackup && bundledDefinitionsCache === null) await loadBundledCardDefinitions()
+        const fullRecord = buildReplayRecord()
+        if (legacyBackup) validateReplayRecord(fullRecord)
+        const record = legacyBackup ? fullRecord : compactJsonRecord(fullRecord)
         const blob = new Blob([JSON.stringify(record)], {type: "application/json"})
         const url = URL.createObjectURL(blob)
         const anchor = document.createElement("a")
@@ -870,8 +1028,9 @@ async function readReplayFile(file) {
     const epoch = replay.epoch
     try {
         if (file.size > REPLAY_MAX_BYTES) throw new Error("リプレイは100MBまでです。")
-        const record = JSON.parse(await file.text())
-        validateReplayRecord(record)
+        const serialized = JSON.parse(await file.text())
+        if (serialized?.formatVersion === 2 && bundledDefinitionsCache === null) await loadBundledCardDefinitions()
+        const record = expandJsonRecord(serialized)
         if (epoch !== replay.epoch || replay.recording || replay.mode !== "manual") throw new Error("操作状態が変わったため、読み込みを中止しました。")
         validateRecord(buildRecord(record))
         replay.data = copy(record)
@@ -2670,7 +2829,7 @@ function deleteZone(id) {
     showSettings()
 }
 function showHelp() {
-    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>「カード登録」の「Excelを取り込む」で.xlsxファイルを選ぶと、カード一覧を表示します。内容を確認し、使うカードを選んで登録してください。カード名・種別・クラス・色・レベル・パワー・タグ・効果を読み取ります。「効果を見る」で全文を確認できます。同じIDの登録済みカードには、未入力の効果・色・タグを追加できます。設定済みの効果・色と他の項目は保持します。色はライバーカードだけに反映します。カードごとの画像の追加や、文字カードの手入力もできます。文字カードにはIDを入力・編集できます。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にレベル、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、レベルの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにレベルはありません。未設定の項目は表示しません。登録済みカードは12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。「デッキ管理」の専用ページで名前付きのデッキを複数保存できます。左にカードの詳細、中央にチャンネルとデッキ、右に追加用カード一覧を表示します。保存は盤面を変更せず、編集画面は開いたままです。盤面の「デッキを選ぶ」から保存デッキを山札とチャンネルへ反映してください。カード登録は両ページで共有します。「画像出力」では、カード画像・名前・ID・枚数を1枚のPNGにまとめます。「TXT出力」でデッキ名・チャンネル・カードのID・名前・枚数・並び順をテキストに保存できます。「TXT読込」で確認後、新しいデッキとして編集できます。使用するカードは先に登録してください。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。中央のデッキ欄には編集中のカードと枚数を表示し、枚数を直接変更できます。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。Excelは「全カード」シートを優先し、ID・カード名・種類・クラス・レベル・Powerと、任意のColors・効果列を読みます。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」はPCでは50枚ずつ、スマートフォンでは24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードをクリックして複数選択し、移動先と「上・先頭へ／下・末尾へ」を選んで「移動」を押します。移動先には「フィールド（横向き）」も選べます。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」でカード画像を含むJSONを保存し、「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でカード画像・デッキ・盤面・メモをファイルに保存してください。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><section class="mobile-only" style="flex-direction:column"><h3>スマートフォンの操作</h3><p>画面下の「基本操作」「選択」「履歴」で操作欄を開き、「盤面」で戻ります。カードをタップしてから「選択」を開くと、移動や表裏の変更、内容の確認ができます。「複数選択」をオンにするとカードをまとめて選べます。山札・ログの「一覧」からも、1枚を選んで「内容を確認」を開けます。カードが多いゾーンは横にスワイプできます。</p></section><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>HTMLと共通のCSS・JavaScriptを同じ配置で用意して使います。複数ページの保存共有には同じサイトのURLから開いてください。追加ライブラリ、アカウント、外部APIは不要です。公式のカード画像やイラストは同梱していません。このアプリのデータ保存・画像変換は端末内で行い、アプリからの外部通信を許可しない設定を入れています。</p></div>`, "help")
+    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>標準のカードは最初から登録されており、すぐにデッキを作れます。カードを追加・更新する場合は、「カード登録」の「Excelを取り込む」で.xlsxファイルを選ぶと、カード一覧を表示します。内容を確認し、使うカードを選んで登録してください。カード名・種別・クラス・色・レベル・パワー・タグ・効果を読み取ります。「効果を見る」で全文を確認できます。同じIDの登録済みカードには、未入力の効果・色・タグを追加できます。設定済みの効果・色と他の項目は保持します。色はライバーカードだけに反映します。カードごとの画像の追加や、文字カードの手入力もできます。文字カードにはIDを入力・編集できます。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にレベル、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、レベルの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにレベルはありません。未設定の項目は表示しません。登録済みカードは12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。「デッキ管理」の専用ページで名前付きのデッキを複数保存できます。左にカードの詳細、中央にチャンネルとデッキ、右に追加用カード一覧を表示します。保存は盤面を変更せず、編集画面は開いたままです。盤面の「デッキを選ぶ」から保存デッキを山札とチャンネルへ反映してください。カード登録は両ページで共有します。「画像出力」では、カード画像・名前・ID・枚数を1枚のPNGにまとめます。「TXT出力」でデッキ名・チャンネル・カードのID・名前・枚数・並び順をテキストに保存できます。「TXT読込」で確認後、新しいデッキとして編集できます。標準カード以外を使う場合は、先にそのカードを登録してください。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。中央のデッキ欄には編集中のカードと枚数を表示し、枚数を直接変更できます。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。Excelは「全カード」シートを優先し、ID・カード名・種類・クラス・レベル・Powerと、任意のColors・効果列を読みます。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」はPCでは50枚ずつ、スマートフォンでは24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードをクリックして複数選択し、移動先と「上・先頭へ／下・末尾へ」を選んで「移動」を押します。移動先には「フィールド（横向き）」も選べます。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」ではユーザーが追加したカード情報・画像だけを含むJSONを保存し、標準カードはCSVから復元します。「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でユーザーが追加したカード情報・画像と、デッキ・盤面・メモを保存できます。標準カードの情報は含めず、読込時にCSVから復元します。標準カードに加えた編集や画像もJSONには含めません。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><section class="mobile-only" style="flex-direction:column"><h3>スマートフォンの操作</h3><p>画面下の「基本操作」「選択」「履歴」で操作欄を開き、「盤面」で戻ります。カードをタップしてから「選択」を開くと、移動や表裏の変更、内容の確認ができます。「複数選択」をオンにするとカードをまとめて選べます。山札・ログの「一覧」からも、1枚を選んで「内容を確認」を開けます。カードが多いゾーンは横にスワイプできます。</p></section><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>ローカルではフォルダ内のlaunch.batから起動してください。PC内のサーバーを経由して開き、default-cards.csvから標準カードを自動で読み込みます。CSVの取得以外にアプリから通信することはなく、データ保存・画像変換は端末内で行います。アカウントや外部APIは不要です。HTMLファイルを直接開いた以前の保存データは、その画面からJSON保存して、起動後の画面で読み込んでください。公式のカード画像やイラストは同梱していません。</p></div>`, "help")
 }
 function checkState(candidate, images, deep = false) {
     const object = value => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -2806,10 +2965,13 @@ function validateRecord(record) {
     if (record.replay !== undefined) validateReplayRecord({...record.replay, assets: record.assets})
     if (record.savedDecks !== undefined) validateSavedDecks(record.savedDecks, record.state.catalog)
 }
-function saveJSON() {
+async function saveJSON() {
     try {
-        const record = buildRecord()
-        validateRecord(record)
+        const legacyBackup = typeof localDeckFile !== "undefined" && localDeckFile && bundledDefinitionsCache === null
+        if (!legacyBackup && bundledDefinitionsCache === null) await loadBundledCardDefinitions()
+        const fullRecord = buildRecord()
+        if (legacyBackup) validateRecord(fullRecord)
+        const record = legacyBackup ? fullRecord : compactJsonRecord(fullRecord)
         const blob = new Blob([JSON.stringify(record)], {type: "application/json"})
         const anchor = document.createElement("a")
         const url = URL.createObjectURL(blob)
@@ -2831,14 +2993,16 @@ async function readStateFile(file) {
     let previousRecord = null
     try {
         if (file.size > 100000000) throw new Error("File exceeds 100 MB.")
-        const record = JSON.parse(await file.text())
-        validateRecord(record)
+        const serialized = JSON.parse(await file.text())
+        if (serialized?.formatVersion === 2 && bundledDefinitionsCache === null) await loadBundledCardDefinitions()
+        const record = expandJsonRecord(serialized)
         if (replayEpoch !== replay.epoch || replay.recording || replay.mode !== "manual") throw new Error("操作状態が変わったため、読み込みを中止しました。")
         if (!confirm(appPage === "deck" ? "カード登録・保存デッキをファイルから復元します。現在の盤面と盤面で使用中の登録カードは保持します。続けますか？" : "カード登録・保存デッキ・盤面をファイルの内容に置き換えます。続けますか？")) return
         if (appPage === "deck" && !(await confirmDeckManagerLeave())) return
         if (storageReady) await flushStorageSave()
         previousRecord = buildRecord()
         const restoredState = upgradeLayout(copy(record.state))
+        if (bundledDefinitionsCache !== null) addBundledCardsToState(restoredState)
         checkState(restoredState, record.assets, true)
         state = restoredState
         assets = copy(record.assets)
@@ -3499,7 +3663,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (appDeckRedirect) {location.replace(appDeckManagerURL()); return}
     if (localDeckBridge) {await serveLocalDeckTransfer(); return}
     render()
+    if (!localDeckLegacyEntry) await loadBundledCardDefinitions()
     const ready = await initializeStorage()
+    if (!ready && !localDeckLegacyEntry && bundledDefinitionsCache !== null) {
+        try {addBundledCardsToState(state)} catch (error) {notify(`初期カードを読み込めませんでした。${error.message}`, true)}
+    }
     if (localDeckRoot && ready) await initializeLocalDeckTransfer()
     else {localDeckTransferPending = false; render()}
 })

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'">
 <title>デッキ管理 | NijinanaSimulator</title>
 <meta name="description" content="にじななのデッキを作成・編集してブラウザ内に保存できます。カード登録、検索、枚数の変更、デッキ画像の出力に対応しています。">
 <link rel="stylesheet" href="../app.css">
@@ -26,6 +26,7 @@
 <script src="../app-navigation.js"></script>
 <script src="../app.js"></script>
 <script src="../deck-storage.js"></script>
+<script src="../json-export.js"></script>
 <script src="../deck-txt.js"></script>
 <script src="../deck-manager.js"></script>
 </body>

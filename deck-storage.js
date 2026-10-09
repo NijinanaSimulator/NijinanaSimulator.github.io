@@ -335,6 +335,13 @@ async function importLocalDeckStorage(snapshot, migrationKey) {
                 const freshId = (prefix, ids) => {let id; do {id = uid(prefix)} while (ids.has(id)); ids.add(id); return id}
                 const assetMap = new Map(), definitionMap = new Map(), imageByData = new Map(Object.entries(images).map(([id, data]) => [data, id]))
                 const definitionByValue = new Map(Object.entries(catalog).map(([id, item]) => [canonical(item), id]))
+                const used = new Set([...storageDefinitionReferences(latest.board?.state || {}), ...storageDefinitionReferences(state), ...storageDefinitionReferences(storageLiveData().state)])
+                for (const deck of decks) {if (deck.channelDefinition) used.add(deck.channelDefinition); for (const entry of deck.list) used.add(entry.definition)}
+                let bundled = []
+                try {if (typeof bundledCardDefinitions === "function") bundled = bundledCardDefinitions()} catch {}
+                const bundledByKey = new Map(bundled.map(item => [item.sourceCardKey, canonical(item)]))
+                const untouchedBuiltins = new Map(Object.entries(catalog).filter(([id, item]) => id.startsWith("builtin_") && !used.has(id) && !(typeof deckManagerUsesDefinition === "function" && deckManagerUsesDefinition(id)) && bundledByKey.get(item.sourceCardKey) === canonical(item)).map(([id, item]) => [item.sourceCardKey, id]))
+                const updatedDefinitions = new Set()
                 counts = {cards: 0, assets: 0, decks: 0, skippedDecks: 0, alreadyImported: false}
                 for (const [sourceId, original] of Object.entries(incoming.catalog)) {
                     const item = copy(original)
@@ -350,7 +357,18 @@ async function importLocalDeckStorage(snapshot, migrationKey) {
                     }
                     const signature = canonical(item)
                     let id = sourceId
-                    if (!Object.hasOwn(catalog, id) || canonical(catalog[id]) !== signature) id = definitionByValue.get(signature) || (Object.hasOwn(catalog, id) ? freshId("definition", definitionIds) : id)
+                    const builtin = untouchedBuiltins.get(item.sourceCardKey)
+                    if (builtin) {
+                        id = builtin
+                        const previous = canonical(catalog[id])
+                        if (previous !== signature) {
+                            if (definitionByValue.get(previous) === id) definitionByValue.delete(previous)
+                            catalog[id] = item
+                            updatedDefinitions.add(id)
+                        }
+                        definitionByValue.set(signature, id)
+                        untouchedBuiltins.delete(item.sourceCardKey)
+                    } else if (!Object.hasOwn(catalog, id) || canonical(catalog[id]) !== signature) id = definitionByValue.get(signature) || (Object.hasOwn(catalog, id) ? freshId("definition", definitionIds) : id)
                     if (!Object.hasOwn(catalog, id)) {catalog[id] = item; definitionByValue.set(signature, id); counts.cards += 1}
                     definitionMap.set(sourceId, id)
                 }
@@ -381,7 +399,7 @@ async function importLocalDeckStorage(snapshot, migrationKey) {
                 validateSavedDecks(decks, catalog)
                 const catalogStore = transaction.objectStore("catalog"), assetStore = transaction.objectStore("assets"), deckStore = transaction.objectStore("decks")
                 const existingDefinitions = new Set(latest.keys), existingImages = new Set(latest.assetKeys), existingIds = new Set(latest.decks.map(deck => deck.id))
-                for (const [id, item] of Object.entries(catalog)) if (!existingDefinitions.has(id)) catalogStore.put(item, id)
+                for (const [id, item] of Object.entries(catalog)) if (!existingDefinitions.has(id) || updatedDefinitions.has(id)) catalogStore.put(item, id)
                 for (const [id, data] of Object.entries(images)) if (!existingImages.has(id)) assetStore.put(data, id)
                 for (const deck of decks) if (!existingIds.has(deck.id)) deckStore.put(deck, deck.id)
                 transaction.objectStore("boards").put({importedAt: new Date().toISOString(), ...counts}, migrationKey)
@@ -459,6 +477,79 @@ function connectDeckStorageUpdates() {
     window.addEventListener("focus", refresh)
     document.addEventListener("visibilitychange", () => {if (!document.hidden) refresh()})
 }
+async function initializeBundledCardStorage() {
+    if (typeof bundledDefinitionsCache !== "undefined" && bundledDefinitionsCache === null) return {added: 0, limitReached: false, unavailable: true}
+    if (typeof localDeckLegacyEntry !== "undefined" && localDeckLegacyEntry) return {added: 0, limitReached: false}
+    if (typeof bundledCardDefinitions !== "function") return {added: 0, limitReached: false}
+    if (!database) throw new Error("標準カードの保存先を開けませんでした。")
+    const definitions = copy(bundledCardDefinitions())
+    if (!Array.isArray(definitions) || definitions.length > 500) throw new Error("標準カードの形式を確認してください。")
+    const sourceIds = new Set(), validationState = blankState()
+    for (const [index, item] of definitions.entries()) {
+        if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.sourceCardKey !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(item.sourceCardKey) || ["__proto__", "constructor", "prototype"].includes(item.sourceCardKey) || sourceIds.has(item.sourceCardKey) || item.asset !== "" || isColorDefinition(item)) throw new Error("標準カードのID・画像・種別を確認してください。")
+        sourceIds.add(item.sourceCardKey)
+        validationState.catalog[`bundled_validation_${index}`] = item
+    }
+    checkState(validationState, {}, true)
+    const transaction = database.transaction(["catalog", "assets", "decks"], "readwrite"), done = storageTransactionDone(transaction)
+    const latest = {keys: null, values: null, assetKeys: null, assetValues: null, decks: null}
+    let operationError = null, result = null
+    const process = () => {
+        if (Object.values(latest).some(value => value === null)) return
+        try {
+            const catalog = Object.fromEntries(latest.keys.map((key, index) => [key, latest.values[index]]))
+            const registered = new Set(Object.values(catalog).map(item => item.sourceCardKey).filter(Boolean))
+            const missing = definitions.filter(item => !registered.has(item.sourceCardKey))
+            if (Object.values(catalog).filter(item => !isColorDefinition(item)).length + missing.length > 500) {result = {added: 0, limitReached: true, missing: missing.length}; return}
+            const additions = []
+            for (const item of missing) {
+                const base = `builtin_${item.sourceCardKey.replaceAll("-", "_")}`
+                let id = base.slice(0, 90), index = 2
+                while (Object.hasOwn(catalog, id)) {const suffix = `_${index++}`; id = `${base.slice(0, 90 - suffix.length)}${suffix}`}
+                catalog[id] = item
+                additions.push({id, item})
+            }
+            const candidate = blankState()
+            Object.assign(candidate.catalog, catalog)
+            const images = Object.fromEntries(latest.assetKeys.map((key, index) => [key, latest.assetValues[index]]))
+            checkState(candidate, images, true)
+            validateSavedDecks(latest.decks, catalog)
+            const catalogStore = transaction.objectStore("catalog")
+            for (const {id, item} of additions) catalogStore.put(item, id)
+            result = {added: additions.length, limitReached: false}
+        } catch (error) {operationError = error; transaction.abort()}
+    }
+    const read = (key, request) => {
+        request.onsuccess = () => {latest[key] = request.result; process()}
+        request.onerror = () => {operationError = request.error; transaction.abort()}
+    }
+    read("keys", transaction.objectStore("catalog").getAllKeys())
+    read("values", transaction.objectStore("catalog").getAll())
+    read("assetKeys", transaction.objectStore("assets").getAllKeys())
+    read("assetValues", transaction.objectStore("assets").getAll())
+    read("decks", transaction.objectStore("decks").getAll())
+    try {await done} catch (error) {throw operationError || error}
+    return result
+}
+async function initializeBundledCardsAfterTransfer() {
+    if (!storageReady || !database) return {added: 0, failed: true}
+    return queueStorageOperation(async () => {
+        try {
+            const result = await initializeBundledCardStorage()
+            if (result.limitReached) notify("カード登録が500種類を超えるため、標準カードを追加できませんでした。登録を整理してから開き直してください。", true)
+            if (result.added) {
+                applySharedStorage(await readSharedStorage())
+                renderSharedStorage()
+                broadcastDeckStorage()
+            }
+            return result
+        } catch (error) {
+            console.error("Bundled card registration failed", error)
+            notify(`標準カードを登録できませんでした。${error.message || String(error)}`, true)
+            return {added: 0, failed: true}
+        }
+    })
+}
 function initializeStorage() {
     if (storageInitialization) return storageInitialization
     storageFailed = false
@@ -483,6 +574,15 @@ function initializeStorage() {
             }
             try {
                 await migrateDeckStorage()
+                if (!(typeof localDeckTransferPending !== "undefined" && localDeckTransferPending)) {
+                    try {
+                        const bundled = await initializeBundledCardStorage()
+                        if (bundled.limitReached) notify("カード登録が500種類を超えるため、標準カードを追加できませんでした。登録を整理してから開き直してください。", true)
+                    } catch (error) {
+                        console.error("Bundled card registration failed", error)
+                        notify(`標準カードを登録できませんでした。${error.message || String(error)}`, true)
+                    }
+                }
                 const transaction = database.transaction("boards", "readonly"), done = storageTransactionDone(transaction)
                 const [record] = await Promise.all([storageReadRequest(transaction.objectStore("boards").get("current")), done])
                 let restored = false

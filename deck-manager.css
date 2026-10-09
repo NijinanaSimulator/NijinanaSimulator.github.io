@@ -131,3 +131,4 @@ dialog:has(.dm-leave-confirm){width:min(570px,94vw)}
 .dm-local-transfer-notice p{margin:0 0 8px}
 .dm-detail-tags{display:flex;flex-wrap:wrap;gap:5px 6px;margin:7px 0 0;color:#45647c;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .dm-detail-tags>span{max-width:100%;padding:2px 6px;border:1px solid #d6e3ed;border-radius:4px;background:#edf4f9}
+.dm-filter-row label.dm-sort-direction{flex:0 0 68px}

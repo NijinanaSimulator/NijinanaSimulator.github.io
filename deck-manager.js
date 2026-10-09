@@ -1,5 +1,7 @@
 // Named deck editor. Cards and images come from the shared application storage.
-const deckManager = {initialized:false,view:'gallery',draft:null,baseline:'',selected:'',query:'',type:'',className:'',colors:new Set(),sort:'registered',page:0,catalogMode:'main',saving:false,exporting:false,exportEpoch:0,pickerPlayer:'p1',textImporting:false,pickerLoading:false,pickerError:'',pickerEpoch:0}
+const deckManager = {initialized:false,view:'gallery',draft:null,baseline:'',selected:'',query:'',type:'',className:'',colors:new Set(),sort:'registered',sortDirection:'asc',page:0,catalogMode:'main',saving:false,exporting:false,exportEpoch:0,pickerPlayer:'p1',textImporting:false,pickerLoading:false,pickerError:'',pickerEpoch:0}
+const deckManagerSorts={registered:'登録順',name:'カード名',id:'ID',cost:'レベル',power:'パワー'}
+const deckManagerSortDirections={asc:'昇順',desc:'降順'}
 const deckManagerPageSize=18
 const deckManagerDraftKey='nijinana_deck_editor_draft_v1'
 const deckManagerCollator=new Intl.Collator('ja',{numeric:true,sensitivity:'base'})
@@ -73,16 +75,16 @@ function deckManagerDeckContentsHTML(){
 function deckManagerFilteredCatalog(){
  const normalize=value=>String(value||'').normalize('NFKC').toLocaleLowerCase('ja'),terms=normalize(deckManager.query).trim().split(/\s+/).filter(Boolean)
  const entries=deckManagerEntries().filter(([,item])=>(deckManager.catalogMode==='channel'?textCardType(item)==='channel':textCardType(item)!=='channel')&&(!deckManager.type||textCardType(item)===deckManager.type)&&(!deckManager.className||item.className===deckManager.className)&&[...deckManager.colors].every(color=>item.colors?.includes(color))&&terms.every(term=>normalize(`${item.name} ${item.sourceCardKey||''} ${item.text||''} ${liverCardTags(item).map(tag=>`#${tag}`).join(' ')}`).includes(term)))
- if(deckManager.sort==='registered')return entries
- entries.sort((a,b)=>{
-  if(deckManager.sort==='name')return deckManagerCollator.compare(a[1].name,b[1].name)
-  if(deckManager.sort==='id')return deckManagerCollator.compare(a[1].sourceCardKey||'',b[1].sourceCardKey||'')
-  const field=deckManager.sort==='power'?'power':'cost',left=a[1][field],right=b[1][field]
-  if(left===null||left===undefined)return right===null||right===undefined?0:1
-  if(right===null||right===undefined)return -1
-  return deckManager.sort==='power'?right-left:left-right
+ const direction=deckManager.sortDirection==='desc'?-1:1
+ if(deckManager.sort==='registered')return direction===1?entries:entries.reverse()
+ return entries.sort((a,b)=>{
+  if(deckManager.sort==='name')return direction*deckManagerCollator.compare(a[1].name,b[1].name)
+  const field=deckManager.sort==='id'?'sourceCardKey':deckManager.sort==='power'?'power':'cost',left=a[1][field],right=b[1][field]
+  const missing=value=>value===null||value===undefined||(field==='sourceCardKey'&&value==='')
+  if(missing(left))return missing(right)?0:1
+  if(missing(right))return -1
+  return direction*(field==='sourceCardKey'?deckManagerCollator.compare(left,right):left-right)
  })
- return entries
 }
 function deckManagerCatalogHTML(){
  const entries=deckManagerFilteredCatalog(),pages=Math.max(1,Math.ceil(entries.length/deckManagerPageSize));deckManager.page=Math.max(0,Math.min(pages-1,deckManager.page));const start=deckManager.page*deckManagerPageSize
@@ -95,9 +97,10 @@ function deckManagerCatalogHTML(){
 function deckManagerFiltersHTML(){
  const types=Object.entries(textCardTypes).filter(([type])=>type!=='channel').map(([value,label])=>`<option value="${value}" ${deckManager.type===value?'selected':''}>${label}</option>`).join('')
  const classes=textCardClasses.map(value=>`<option value="${value}" ${deckManager.className===value?'selected':''}>${value}</option>`).join('')
- const sorts=Object.entries({registered:'登録順',name:'カード名',id:'ID',cost:'レベルが低い順',power:'パワーが高い順'}).map(([value,label])=>`<option value="${value}" ${deckManager.sort===value?'selected':''}>${label}</option>`).join('')
+ const sorts=Object.entries(deckManagerSorts).map(([value,label])=>`<option value="${value}" ${deckManager.sort===value?'selected':''}>${label}</option>`).join('')
+ const directions=Object.entries(deckManagerSortDirections).map(([value,label])=>`<option value="${value}" ${deckManager.sortDirection===value?'selected':''}>${label}</option>`).join('')
  const colors=Object.entries(deckManagerColorNames).map(([value,name])=>`<label class="dm-color-filter" title="${name}"><input type="checkbox" data-manager-color="${value}" ${deckManager.colors.has(value)?'checked':''}><span class="dm-color-dot dm-color-${value.toLowerCase()}"><span>${value}</span></span></label>`).join('')
- return `<div class="dm-catalog-heading"><h3>カード一覧</h3></div><div class="dm-catalog-tabs"><button data-action="manager-main-mode" class="${deckManager.catalogMode==='main'?'active':''}">デッキ用</button><button data-action="manager-channel-mode" class="${deckManager.catalogMode==='channel'?'active':''}">チャンネル</button></div><div class="dm-filters"><label class="dm-search"><span class="sr-only">カード名・ID・タグ・効果で検索</span><input id="managerSearch" type="search" value="${escapeHTML(deckManager.query)}" placeholder="カード名・ID・タグ・効果で検索" autocomplete="off"></label><div class="dm-filter-row">${deckManager.catalogMode==='main'?`<label><span>種別</span><select id="managerType"><option value="">すべて</option>${types}</select></label>`:''}<label><span>クラス</span><select id="managerClass"><option value="">すべて</option>${classes}</select></label><label><span>並び順</span><select id="managerSort">${sorts}</select></label></div>${deckManager.catalogMode==='main'?`<div class="dm-color-filters"><span>色</span>${colors}<button class="ghost small" data-action="manager-clear-filters">解除</button></div>`:''}</div>`
+ return `<div class="dm-catalog-heading"><h3>カード一覧</h3></div><div class="dm-catalog-tabs"><button data-action="manager-main-mode" class="${deckManager.catalogMode==='main'?'active':''}">デッキ用</button><button data-action="manager-channel-mode" class="${deckManager.catalogMode==='channel'?'active':''}">チャンネル</button></div><div class="dm-filters"><label class="dm-search"><span class="sr-only">カード名・ID・タグ・効果で検索</span><input id="managerSearch" type="search" value="${escapeHTML(deckManager.query)}" placeholder="カード名・ID・タグ・効果で検索" autocomplete="off"></label><div class="dm-filter-row">${deckManager.catalogMode==='main'?`<label><span>種別</span><select id="managerType"><option value="">すべて</option>${types}</select></label>`:''}<label><span>クラス</span><select id="managerClass"><option value="">すべて</option>${classes}</select></label><label><span>並び順</span><select id="managerSort">${sorts}</select></label><label class="dm-sort-direction"><span>順序</span><select id="managerSortDirection">${directions}</select></label></div>${deckManager.catalogMode==='main'?`<div class="dm-color-filters"><span>色</span>${colors}<button class="ghost small" data-action="manager-clear-filters">解除</button></div>`:''}</div>`
 }
 function deckManagerEditorHTML(){
  const draft=deckManager.draft
@@ -128,7 +131,7 @@ async function deckManagerOpen(deck=null,{unsaved=false}={}){
  discardDeckManagerDraft()
  const now=new Date().toISOString();deckManager.draft=deck?copy(deck):{id:uid('deck'),name:'新しいデッキ',list:[],channelDefinition:'',createdAt:now,updatedAt:now}
  deckManager.baseline=deck&&!unsaved?deckManagerSignature(deckManager.draft):'';deckManager.selected=deckManager.draft.channelDefinition||deckManager.draft.list[0]?.definition||'';deckManager.view='editor'
- Object.assign(deckManager,{query:'',type:'',className:'',sort:'registered',page:0,catalogMode:'main'});deckManager.colors.clear();renderDeckPage()
+ Object.assign(deckManager,{query:'',type:'',className:'',sort:'registered',sortDirection:'asc',page:0,catalogMode:'main'});deckManager.colors.clear();renderDeckPage()
  return true
 }
 async function deckManagerLeaveToGallery(){
@@ -237,7 +240,7 @@ function handleDeckManagerAction(action,button){
  else if(action==='manager-clear-channel'){deckManager.draft.channelDefinition='';deckManagerRefreshParts()}
  else if(action==='manager-main-mode'||action==='manager-channel-mode'){deckManager.catalogMode=action==='manager-channel-mode'?'channel':'main';deckManager.type='';deckManager.page=0;deckManager.colors.clear();renderDeckPage()}
  else if(action==='manager-page-prev'||action==='manager-page-next'){deckManager.page+=action==='manager-page-next'?1:-1;deckManagerRefreshParts({contents:false,detail:false})}
- else if(action==='manager-clear-filters'){Object.assign(deckManager,{query:'',type:'',className:'',sort:'registered',page:0});deckManager.colors.clear();renderDeckPage()}
+ else if(action==='manager-clear-filters'){Object.assign(deckManager,{query:'',type:'',className:'',sort:'registered',sortDirection:'asc',page:0});deckManager.colors.clear();renderDeckPage()}
  return true
 }
 function handleDeckManagerInput(target){
@@ -249,8 +252,11 @@ function handleDeckManagerInput(target){
 }
 function handleDeckManagerChange(target){
  if(appPage!=='deck'||!deckManager.draft)return false
- const field={managerType:'type',managerClass:'className',managerSort:'sort'}[target.id]
- if(field){deckManager[field]=target.value;deckManager.page=0;deckManagerRefreshParts({contents:false,detail:false});return true}
+ const field={managerType:'type',managerClass:'className',managerSort:'sort',managerSortDirection:'sortDirection'}[target.id]
+ if(field){
+  deckManager[field]=field==='sort'?(Object.hasOwn(deckManagerSorts,target.value)?target.value:'registered'):field==='sortDirection'?(Object.hasOwn(deckManagerSortDirections,target.value)?target.value:'asc'):target.value
+  deckManager.page=0;deckManagerRefreshParts({contents:false,detail:false});return true
+ }
  if(target.dataset.managerColor){if(target.checked)deckManager.colors.add(target.dataset.managerColor);else deckManager.colors.delete(target.dataset.managerColor);deckManager.page=0;deckManagerRefreshParts({contents:false,detail:false});return true}
  if(target.dataset.managerQuantity){deckManagerSetQuantity(target.dataset.managerQuantity,target.value);deckManagerRefreshParts();return true}
  return false
