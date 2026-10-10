@@ -478,9 +478,9 @@ function connectDeckStorageUpdates() {
     document.addEventListener("visibilitychange", () => {if (!document.hidden) refresh()})
 }
 async function initializeBundledCardStorage() {
-    if (typeof bundledDefinitionsCache !== "undefined" && bundledDefinitionsCache === null) return {added: 0, limitReached: false, unavailable: true}
-    if (typeof localDeckLegacyEntry !== "undefined" && localDeckLegacyEntry) return {added: 0, limitReached: false}
-    if (typeof bundledCardDefinitions !== "function") return {added: 0, limitReached: false}
+    if (typeof bundledDefinitionsCache !== "undefined" && bundledDefinitionsCache === null) return {added: 0, updated: 0, limitReached: false, unavailable: true}
+    if (typeof localDeckLegacyEntry !== "undefined" && localDeckLegacyEntry) return {added: 0, updated: 0, limitReached: false}
+    if (typeof bundledCardDefinitions !== "function") return {added: 0, updated: 0, limitReached: false}
     if (!database) throw new Error("標準カードの保存先を開けませんでした。")
     const definitions = copy(bundledCardDefinitions())
     if (!Array.isArray(definitions) || definitions.length > 500) throw new Error("標準カードの形式を確認してください。")
@@ -498,11 +498,12 @@ async function initializeBundledCardStorage() {
         if (Object.values(latest).some(value => value === null)) return
         try {
             const catalog = Object.fromEntries(latest.keys.map((key, index) => [key, latest.values[index]]))
+            const updated = backfillBundledCardTags(catalog, definitions)
             const registered = new Set(Object.values(catalog).map(item => item.sourceCardKey).filter(Boolean))
             const missing = definitions.filter(item => !registered.has(item.sourceCardKey))
-            if (Object.values(catalog).filter(item => !isColorDefinition(item)).length + missing.length > 500) {result = {added: 0, limitReached: true, missing: missing.length}; return}
+            const limitReached = Object.values(catalog).filter(item => !isColorDefinition(item)).length + missing.length > 500
             const additions = []
-            for (const item of missing) {
+            for (const item of limitReached ? [] : missing) {
                 const base = `builtin_${item.sourceCardKey.replaceAll("-", "_")}`
                 let id = base.slice(0, 90), index = 2
                 while (Object.hasOwn(catalog, id)) {const suffix = `_${index++}`; id = `${base.slice(0, 90 - suffix.length)}${suffix}`}
@@ -515,8 +516,8 @@ async function initializeBundledCardStorage() {
             checkState(candidate, images, true)
             validateSavedDecks(latest.decks, catalog)
             const catalogStore = transaction.objectStore("catalog")
-            for (const {id, item} of additions) catalogStore.put(item, id)
-            result = {added: additions.length, limitReached: false}
+            for (const {id, item} of [...updated, ...additions]) catalogStore.put(item, id)
+            result = {added: additions.length, updated: updated.length, limitReached, ...(limitReached ? {missing: missing.length} : {})}
         } catch (error) {operationError = error; transaction.abort()}
     }
     const read = (key, request) => {
@@ -532,12 +533,12 @@ async function initializeBundledCardStorage() {
     return result
 }
 async function initializeBundledCardsAfterTransfer() {
-    if (!storageReady || !database) return {added: 0, failed: true}
+    if (!storageReady || !database) return {added: 0, updated: 0, failed: true}
     return queueStorageOperation(async () => {
         try {
             const result = await initializeBundledCardStorage()
             if (result.limitReached) notify("カード登録が500種類を超えるため、標準カードを追加できませんでした。登録を整理してから開き直してください。", true)
-            if (result.added) {
+            if (result.added || result.updated) {
                 applySharedStorage(await readSharedStorage())
                 renderSharedStorage()
                 broadcastDeckStorage()
@@ -546,7 +547,7 @@ async function initializeBundledCardsAfterTransfer() {
         } catch (error) {
             console.error("Bundled card registration failed", error)
             notify(`標準カードを登録できませんでした。${error.message || String(error)}`, true)
-            return {added: 0, failed: true}
+            return {added: 0, updated: 0, failed: true}
         }
     })
 }

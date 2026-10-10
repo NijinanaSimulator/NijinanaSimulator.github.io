@@ -1,8 +1,16 @@
 // Named deck editor. Cards and images come from the shared application storage.
-const deckManager = {initialized:false,view:'gallery',draft:null,baseline:'',selected:'',query:'',type:'',className:'',colors:new Set(),sort:'registered',sortDirection:'asc',page:0,catalogMode:'main',saving:false,exporting:false,exportEpoch:0,pickerPlayer:'p1',textImporting:false,pickerLoading:false,pickerError:'',pickerEpoch:0}
+const deckManager = {initialized:false,view:'gallery',draft:null,baseline:'',selected:'',query:'',type:'',className:'',colors:new Set(),sort:'registered',sortDirection:'asc',page:0,catalogMode:'main',saving:false,exporting:false,exportEpoch:0,pickerPlayer:'p1',textImporting:false,pickerLoading:false,pickerError:'',pickerEpoch:0,starterAdding:''}
 const deckManagerSorts={registered:'登録順',name:'カード名',id:'ID',cost:'レベル',power:'パワー'}
 const deckManagerSortDirections={asc:'昇順',desc:'降順'}
-const deckManagerPageSize=18
+const deckManagerPageSize=24
+// Starter deck quantities follow the workbook rarity: N = 4, SDR = 2.
+// SD02 uses ID placeholders for 014–016, with approved quantities of 4, 2, 2.
+const deckManagerStarterDecks=[
+ {id:'SD01',twoCopies:[4,9,13,15,16]},
+ {id:'SD02',twoCopies:[5,9,13,15,16]},
+ {id:'SD03',twoCopies:[5,9,13,14,15]},
+ {id:'SD04',twoCopies:[5,9,13,15,16]}
+]
 const deckManagerDraftKey='nijinana_deck_editor_draft_v1'
 const deckManagerCollator=new Intl.Collator('ja',{numeric:true,sensitivity:'base'})
 const deckManagerColorNames={R:'赤',O:'橙',Y:'黄',G:'緑',B:'青',I:'藍',V:'紫'}
@@ -55,7 +63,47 @@ function deckManagerGalleryHTML(){
   const channel=state.catalog[deck.channelDefinition]
   return `<article class="dm-deck-tile"><button class="dm-deck-open" data-action="manager-edit" data-deck-id="${escapeHTML(deck.id)}">${deckManagerCoverHTML(deck)}<strong>${escapeHTML(deck.name||'無題のデッキ')}</strong><span class="dm-deck-meta">${deckManagerTotal(deck)}枚 · ${(deck.list||[]).length}種類</span><span class="dm-deck-channel">${channel?escapeHTML(channel.name):'チャンネル未設定'}</span></button><div class="dm-tile-actions"><button data-action="manager-edit" data-deck-id="${escapeHTML(deck.id)}">編集</button><button data-action="manager-duplicate" data-deck-id="${escapeHTML(deck.id)}">複製</button><button class="dm-delete" data-action="manager-delete" data-deck-id="${escapeHTML(deck.id)}" aria-label="${escapeHTML(deck.name)}を削除">削除</button></div></article>`
  }).join('')
- return `<section class="dm-gallery"><div class="dm-page-title"><div><p class="dm-eyebrow">NijinanaSimulator</p><h2>デッキ</h2><p class="dm-description">保存したデッキを選んで、編集できます。</p></div><div class="dm-gallery-actions"><button data-action="manager-txt-import" ${deckManager.textImporting?'disabled':''}>${deckManager.textImporting?'読み込み中…':'TXT読込'}</button><button data-action="catalog">カード登録</button></div></div><div class="dm-gallery-grid"><button class="dm-new-deck" data-action="manager-new"><span aria-hidden="true">＋</span><strong>新しいデッキ</strong></button>${tiles}</div>${decks.length?'':'<p class="dm-gallery-note">カード登録で用意したカードを使って、デッキを作成できます。</p>'}</section>`
+ return `<section class="dm-gallery"><div class="dm-page-title"><div><p class="dm-eyebrow">NijinanaSimulator</p><h2>デッキ</h2><p class="dm-description">保存したデッキを選んで、編集できます。</p></div><div class="dm-gallery-actions"><button data-action="manager-starters">構築済みデッキ</button><button data-action="manager-txt-import" ${deckManager.textImporting?'disabled':''}>${deckManager.textImporting?'読み込み中…':'TXT読込'}</button><button data-action="catalog">カード登録</button></div></div><div class="dm-gallery-grid"><button class="dm-new-deck" data-action="manager-new"><span aria-hidden="true">＋</span><strong>新しいデッキ</strong></button>${tiles}</div>${decks.length?'':'<p class="dm-gallery-note">カード登録で用意したカードを使って、デッキを作成できます。</p>'}</section>`
+}
+function deckManagerBuildStarterDeck(starter,catalog=state.catalog){
+ const definitions=Object.entries(catalog)
+ const resolve=(number,channel=false)=>{
+  const key=`NJ-${starter.id}-${String(number).padStart(3,'0')}`,matches=definitions.filter(([,item])=>item.sourceCardKey===key)
+  if(!matches.length)throw new Error(`カード「${key}」が未登録です。画面を開き直してください。`)
+  if(matches.length!==1)throw new Error(`カード「${key}」のIDが重複しています。カード登録を確認してください。`)
+  const [id,item]=matches[0]
+  if(isColorDefinition(item)||(textCardType(item)==='channel')!==channel)throw new Error(`カード「${key}」の種別を確認してください。`)
+  return id
+ }
+ const channelDefinition=resolve(1,true),list=Array.from({length:15},(_,index)=>({definition:resolve(index+2),count:starter.twoCopies.includes(index+2)?2:4}))
+ if(list.reduce((total,entry)=>total+entry.count,0)!==50)throw new Error('構築済みデッキの枚数を確認してください。')
+ return {name:`${starter.id} ${catalog[channelDefinition].name}`,channelDefinition,list}
+}
+function showStarterDeckSelector(){
+ openModal('構築済みデッキ','','starter-decks');renderStarterDeckSelector()
+}
+function renderStarterDeckSelector(){
+ if(modalKind!=='starter-decks')return
+ const tiles=deckManagerStarterDecks.map(starter=>{
+  let deck=null,error=''
+  try{deck=deckManagerBuildStarterDeck(starter)}catch(problem){error=problem.message}
+  const adding=deckManager.starterAdding===starter.id
+  return `<button class="dm-picker-deck dm-starter-deck" data-action="manager-starter-add" data-starter-id="${starter.id}" ${error||deckManager.starterAdding?'disabled':''}>${deck?deckManagerCoverHTML(deck):'<span class="dm-cover dm-cover-empty"><span class="dm-empty-symbol">◇</span></span>'}<span><strong>${escapeHTML(deck?.name||starter.id)}</strong><small>50枚 ＋ チャンネル1枚</small>${error?`<small class="dm-starter-error">${escapeHTML(error)}</small>`:`<span class="dm-starter-add">${adding?'登録中…':'デッキ一覧に追加'}</span>`}</span></button>`
+ }).join('')
+ byId('modalContent').innerHTML=`<p class="dm-picker-description">選んだデッキを自分のデッキ一覧に登録します。</p><div class="dm-picker-grid">${tiles}</div>`
+}
+async function deckManagerAddStarterDeck(starterId){
+ if(appPage!=='deck'||!storageReady||deckManager.view!=='gallery'||deckManager.starterAdding)return false
+ const starter=deckManagerStarterDecks.find(item=>item.id===starterId)
+ if(!starter)return false
+ deckManager.starterAdding=starter.id;renderStarterDeckSelector()
+ try{
+  const now=new Date().toISOString(),deck={...deckManagerBuildStarterDeck(starter),id:uid('deck'),createdAt:now,updatedAt:now},saved=await saveNamedDeck(deck)
+  if(saved===false){notify('構築済みデッキを登録できませんでした。',true);return false}
+  if(modalKind==='starter-decks')closeModal()
+  renderDeckPage();notify(`「${saved?.name||deck.name}」をデッキ一覧に追加しました。`);return true
+ }catch(error){notify(`構築済みデッキを登録できませんでした。${error.message}`,true);return false}
+ finally{deckManager.starterAdding='';renderStarterDeckSelector()}
 }
 function deckManagerDetailHTML(){
  const draft=deckManager.draft,id=deckManager.selected,item=state.catalog[id]
@@ -74,7 +122,7 @@ function deckManagerDeckContentsHTML(){
 }
 function deckManagerFilteredCatalog(){
  const normalize=value=>String(value||'').normalize('NFKC').toLocaleLowerCase('ja'),terms=normalize(deckManager.query).trim().split(/\s+/).filter(Boolean)
- const entries=deckManagerEntries().filter(([,item])=>(deckManager.catalogMode==='channel'?textCardType(item)==='channel':textCardType(item)!=='channel')&&(!deckManager.type||textCardType(item)===deckManager.type)&&(!deckManager.className||item.className===deckManager.className)&&[...deckManager.colors].every(color=>item.colors?.includes(color))&&terms.every(term=>normalize(`${item.name} ${item.sourceCardKey||''} ${item.text||''} ${liverCardTags(item).map(tag=>`#${tag}`).join(' ')}`).includes(term)))
+ const entries=deckManagerEntries().filter(([,item])=>(deckManager.catalogMode==='channel'?textCardType(item)==='channel':textCardType(item)!=='channel')&&(!deckManager.type||textCardType(item)===deckManager.type)&&(!deckManager.className||item.className===deckManager.className)&&[...deckManager.colors].every(color=>item.colors?.includes(color))&&terms.every(term=>normalize(`${item.name} ${item.sourceCardKey||''} ${item.text||''} ${cardTags(item).map(tag=>`#${tag}`).join(' ')}`).includes(term)))
  const direction=deckManager.sortDirection==='desc'?-1:1
  if(deckManager.sort==='registered')return direction===1?entries:entries.reverse()
  return entries.sort((a,b)=>{
@@ -117,10 +165,10 @@ function renderDeckPage(){
  if(focusKey&&!deckManager.saving){const restored=quantityFocus?[...root.querySelectorAll('[data-manager-quantity]')].find(element=>element.dataset.managerQuantity===focusKey):byId(focusKey);if(restored){restored.focus({preventScroll:true});if(selection&&typeof restored.setSelectionRange==='function')try{restored.setSelectionRange(...selection)}catch{}}}
  deckManagerRemember()
 }
-function deckManagerRefreshParts({catalog=true,contents=true,detail=true}={}){
+function deckManagerRefreshParts({catalog=true,contents=true,detail=true,resetCatalogScroll=false}={}){
  if(deckManager.view!=='editor'||!deckManager.draft)return
  const catalogNode=byId('managerCatalog'),catalogScroll=catalogNode?.querySelector('.dm-catalog-grid')?.scrollTop||0,contentsNode=byId('managerContents'),contentsScroll=contentsNode?.scrollTop||0
- if(catalog&&catalogNode){catalogNode.innerHTML=deckManagerCatalogHTML();const grid=catalogNode.querySelector('.dm-catalog-grid');if(grid)grid.scrollTop=catalogScroll}
+ if(catalog&&catalogNode){catalogNode.innerHTML=deckManagerCatalogHTML();const grid=catalogNode.querySelector('.dm-catalog-grid');if(grid)grid.scrollTop=resetCatalogScroll?0:catalogScroll}
  if(contents&&contentsNode){contentsNode.innerHTML=deckManagerDeckContentsHTML();contentsNode.scrollTop=contentsScroll}
  if(detail&&byId('managerDetail'))byId('managerDetail').innerHTML=deckManagerDetailHTML()
  const status=byId('managerDirtyStatus');if(status)status.textContent=deckManagerDirty()?'未保存の変更':'保存済み'
@@ -217,7 +265,9 @@ function handleDeckManagerAction(action,button){
  if(action==='deck-editor'){closeModal();renderDeckPage();return true}
  if(!action.startsWith('manager-'))return false
  if(!storageReady||deckManager.saving)return true
- if(action==='manager-new')deckManagerOpen()
+ if(action==='manager-starters')showStarterDeckSelector()
+ else if(action==='manager-starter-add')deckManagerAddStarterDeck(button.dataset.starterId)
+ else if(action==='manager-new')deckManagerOpen()
  
  else if(action==='manager-list')deckManagerLeaveToGallery()
  else if(action==='manager-edit'){const deck=deckManagerDecks().find(item=>item.id===button.dataset.deckId);if(deck)deckManagerOpen(deck)}
@@ -239,7 +289,7 @@ function handleDeckManagerAction(action,button){
  else if(action==='manager-set-channel'){const id=button.dataset.definition;if(deckManagerChannel(id)){deckManager.draft.channelDefinition=id;deckManager.selected=id;deckManagerRefreshParts()}}
  else if(action==='manager-clear-channel'){deckManager.draft.channelDefinition='';deckManagerRefreshParts()}
  else if(action==='manager-main-mode'||action==='manager-channel-mode'){deckManager.catalogMode=action==='manager-channel-mode'?'channel':'main';deckManager.type='';deckManager.page=0;deckManager.colors.clear();renderDeckPage()}
- else if(action==='manager-page-prev'||action==='manager-page-next'){deckManager.page+=action==='manager-page-next'?1:-1;deckManagerRefreshParts({contents:false,detail:false})}
+ else if(action==='manager-page-prev'||action==='manager-page-next'){deckManager.page+=action==='manager-page-next'?1:-1;deckManagerRefreshParts({contents:false,detail:false,resetCatalogScroll:true})}
  else if(action==='manager-clear-filters'){Object.assign(deckManager,{query:'',type:'',className:'',sort:'registered',sortDirection:'asc',page:0});deckManager.colors.clear();renderDeckPage()}
  return true
 }
