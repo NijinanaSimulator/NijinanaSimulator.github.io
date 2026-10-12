@@ -137,3 +137,7 @@ dialog:has(.dm-leave-confirm){width:min(570px,94vw)}
 .dm-starter-deck .dm-starter-error{color:#94535e}
 .dm-starter-add{display:block;margin-top:10px;padding:6px 10px;border-radius:5px;background:#e5f0f8;color:#355c78;font-size:12px}
 .dm-starter-deck:disabled{cursor:default;opacity:.65}
+
+.dm-deck-color-counts{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:12px;padding-top:10px;border-top:1px solid #dce7ef}
+.dm-deck-color-count{display:inline-flex;align-items:center;gap:4px;color:#35546e;font-size:13px;line-height:1.5;white-space:nowrap}
+.dm-deck-color-count strong{display:inline-block;min-width:1.5em;font-weight:600;font-variant-numeric:tabular-nums}

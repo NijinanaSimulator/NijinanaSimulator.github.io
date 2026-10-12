@@ -707,6 +707,7 @@ const defaultZones = () => [
     {id: "field", label: "フィールド", mode: "row", hidden: false},
     {id: "set", label: "セット", mode: "pile", hidden: true},
     {id: "channel", label: "チャンネル", mode: "row", hidden: false},
+    {id: "channel_under", label: "チャンネルの下", mode: "row", hidden: false},
     {id: "stage", label: "ステージ", mode: "row", hidden: false},
     {id: "discard", label: "ログ", mode: "pile", hidden: false},
     {id: "colorline", label: "カラーライン", mode: "row", hidden: true},
@@ -715,6 +716,7 @@ const defaultZones = () => [
 ]
 // Upgrade earlier saves to the current playmat and single-card slots.
 function upgradeLayout(candidate) {
+    initializeChannelUnder(candidate)
     if (candidate.layoutVersion !== 2) {
         for (const zone of defaultZones()) {
             if (candidate.zones.some(existing => existing.id === zone.id)) continue
@@ -729,7 +731,7 @@ function upgradeLayout(candidate) {
     const restoreCard = (id, player) => {
         const card = candidate.cards[id]
         const color = isColorDefinition(candidate.catalog[card.definition])
-        candidate.locations[color ? card.colorOwner : player][color ? "colorline" : "discard"].push(id)
+        candidate.locations[color ? card.colorOwner : player][color ? "colorline" : "discard"].unshift(id)
         card.faceDown = color
         card.rotated = false
     }
@@ -766,6 +768,17 @@ function upgradeLayout(candidate) {
     initializeChannelConfiguration(candidate)
     for (const player of playerIds) for (const id of candidate.locations[player].hand) candidate.cards[id].rotated = false
     return candidate
+}
+function initializeChannelUnder(candidate) {
+    if (!candidate.zones.some(zone => zone.id === "channel_under")) {
+        candidate.zones.push({id: "channel_under", label: "チャンネルの下", mode: "row", hidden: false})
+        for (const player of playerIds) candidate.locations[player].channel_under = []
+    }
+    return candidate
+}
+function requireChannelUnderCards(ids, player) {
+    if (!state.locations[player].channel.length) throw new Error("先にチャンネルを設定してください。")
+    if (ids.some(id => colorForCard(id) || textCardType(definition(id)) === "channel")) throw new Error("チャンネルの下には通常カードを置いてください。")
 }
 function isColorDefinition(item) {return item?.kind === "color"}
 function initializeChannelConfiguration(candidate) {
@@ -828,7 +841,7 @@ let inspectContext = null
 let previewCardId = null
 let previewReturnContext = null
 let editorPlayer = "p1"
-const ui = {selection: new Set(), tab: "operation", drawCount: 1, peekCount: 3, discardCount: 1, initialCount: 5, bothHands: false, movePlayer: "p1", moveZone: "field", deckMoveZone: "field", position: "last", dragging: false, touched: false}
+const ui = {selection: new Set(), tab: "operation", drawCount: 1, peekCount: 3, discardCount: 1, initialCount: 5, bothHands: false, movePlayer: "p1", moveZone: "field", deckMoveZone: "field", pileMoveSide: "self", pileMoveZone: "field", position: "last", dragging: false, touched: false}
 // REPLAY_START
 const REPLAY_MAX_OPERATIONS = 200
 const REPLAY_MAX_BYTES = 100000000
@@ -943,7 +956,7 @@ function showReplayFrame(index) {
     replay.index = Math.max(0, Math.min(replay.data.frames.length - 1, Math.trunc(Number(index)) || 0))
     replay.dismissedCutInIndex = -1
     const frame = replay.data.frames[replay.index]
-    state = copy(frame.state)
+    state = initializeChannelUnder(copy(frame.state))
     assets = replay.data.assets
     ui.bothHands = frame.view.bothHands
     ui.selection.clear()
@@ -1411,13 +1424,14 @@ function moveRaw(ids, player, destination, position = "last") {
     const valid = [...new Set(ids)].filter(id => Object.hasOwn(state.cards, id))
     if (destination === "channel" || valid.some(id => where(id)?.zone === "channel")) throw new Error("チャンネルはデッキ編集で設定してください。")
     if (!playerIds.includes(player) || !zoneById(destination)) throw new Error("移動先のゾーンがありません。")
+    if (destination === "channel_under") requireChannelUnderCards(valid, player)
     const target = state.locations[player][destination]
     if (destination === "set" || destination === "stage") {
         for (const id of valid) {
             const place = where(id)
             state.locations[place.player][place.zone].splice(place.index, 1)
             for (const previousId of target.splice(0)) {
-                state.locations[player].discard.push(previousId)
+                state.locations[player].discard.unshift(previousId)
                 state.cards[previousId].faceDown = false
                 state.cards[previousId].rotated = false
             }
@@ -1431,11 +1445,12 @@ function moveRaw(ids, player, destination, position = "last") {
         const place = where(id)
         state.locations[place.player][place.zone].splice(place.index, 1)
     }
-    if (position === "first") target.unshift(...valid)
+    if (destination === "discard") target.unshift(...valid.slice().reverse())
+    else if (position === "first") target.unshift(...valid)
     else target.push(...valid)
     for (const id of valid) {
         state.cards[id].faceDown = zoneById(destination).hidden
-        if (destination === "hand" || zoneById(destination).mode === "pile") state.cards[id].rotated = false
+        if (destination === "hand" || destination === "channel_under" || zoneById(destination).mode === "pile") state.cards[id].rotated = false
     }
 }
 function reorderZone(ids, player, zone, index, finalPosition = false) {
@@ -1479,6 +1494,7 @@ function dropCardsAt(ids, player, destination, boundary, allowPileReorder = fals
         if ((zone.mode === "pile" && !allowPileReorder) || destination === "set" || destination === "stage") return false
         return reorderZone(ids, player, destination, boundary)
     }
+    if (destination === "discard") return transact(`${ids.length}枚を${state.players[player].name}のログへ移動`, () => moveRaw(ids, player, destination))
     if (destination === "set" || destination === "stage") return transact(`${ids.length}枚を${state.players[player].name}の${zone.label}へ移動`, () => moveRaw(ids, player, destination))
     const bounded = integer(boundary, 0, current.length, current.length)
     const insertion = bounded - current.slice(0, bounded).filter(id => ids.includes(id)).length
@@ -1490,6 +1506,38 @@ function dropCardsAt(ids, player, destination, boundary, allowPileReorder = fals
         current.splice(insertion, 0, ...moved)
         for (const [id, appearance] of retained) Object.assign(state.cards[id], appearance)
     })
+}
+function movePileSelection(sourceZone, destination, side = "self", sourceCard = null, position = "last") {
+    if (!["deck", "discard", "channel_under"].includes(sourceZone)) return false
+    const targetZone = destination === "field-rotated" ? "field" : destination
+    const allowed = ["field", "set", "stage", "channel_under", "deck", ...(sourceZone === "discard" ? [] : ["discard"])]
+    if (!allowed.includes(targetZone)) return false
+    const inspection = inspectContext?.zone === sourceZone && (modalKind === "zone" || (modalKind === "preview" && previewReturnContext === inspectContext)) ? inspectContext : null
+    const observed = inspection ? new Set(inspectorIds()) : null
+    const moving = (sourceCard ? [sourceCard] : selectedIds()).filter(id => where(id)?.zone === sourceZone && !colorForCard(id) && (!observed || observed.has(id)))
+    if (!moving.length) {notify("移動するカードを選択してください。"); return false}
+    const targetPlayer = side === "opponent" ? playerIds.find(player => player !== state.active) : state.active
+    const groups = side === "source" ? playerIds.map(player => [player, moving.filter(id => where(id).player === player)]) : [[targetPlayer, moving]]
+    const previousSnapshot = inspection?.snapshot
+    const removeFromInspection = previousSnapshot && (targetZone !== sourceZone || (sourceZone === "deck" && position === "last") || groups.some(([player]) => player !== inspection.player))
+    const succeeded = transact(`${moving.length}枚を${side === "source" ? "元のプレイヤー" : state.players[targetPlayer].name}の${zoneById(targetZone).label}${destination === "field-rotated" ? "（横）" : ""}へ移動`, () => {
+        for (const [player, ids] of groups) if (ids.length) {
+            moveRaw(ids, player, targetZone, position)
+            if (targetZone === "field") for (const id of ids) state.cards[id].rotated = destination === "field-rotated"
+        }
+        if (removeFromInspection) inspection.snapshot = previousSnapshot.filter(id => !moving.includes(id))
+    })
+    if (!succeeded) {
+        if (previousSnapshot) {
+            inspection.snapshot = previousSnapshot
+            if (inspectContext === inspection && modalKind === "zone") renderZoneInspector()
+        }
+        return false
+    }
+    ui.selection.clear()
+    if (sourceCard && modalKind === "preview") closeModal()
+    render()
+    return true
 }
 function moveDeckSelection(destination, rotated = false, sourceCard = null, position = "last") {
     if (!zoneById(destination) || destination === "channel" || destination === "colorline" || destination.startsWith("niji_")) return
@@ -1850,7 +1898,11 @@ function zoneHTML(player, zone) {
     let content = zone.id === "colorline" ? "" : displayed.map(id => cardHTML(id, {location})).join("")
     if (zone.id === "colorline") content = Array.from({length: Math.max(7, displayed.length)}, (_, index) => `<div class="colorline-slot"><span class="slot-number">${index + 1}</span>${displayed[index] ? cardHTML(displayed[index], {location}) : `<span class="slot-placeholder" aria-hidden="true"></span>`}</div>`).join("")
     if (isNiji && !displayed.length) content = `<span class="zone-empty niji-letter" aria-hidden="true">${escapeHTML(zone.id.slice(-1).toUpperCase())}</span>`
-    const dropTarget = zone.id === "channel" ? "" : `data-drop-player="${player}" data-drop-zone="${zone.id}"`
+    if (zone.id === "channel") {
+        const under = state.locations[player].channel_under || []
+        if (under.length) content = `<div class="channel-card-stack">${Array.from({length: Math.min(3, under.length)}, (_, index) => `<span class="channel-stack-layer" style="--stack-offset:${(index + 1) * 3}px" aria-hidden="true"></span>`).join("")}<div class="channel-stack-front">${content}</div><button class="channel-under-count" data-action="inspect" data-player="${player}" data-zone="channel_under" aria-label="チャンネルの下の${under.length}枚を確認">下 ${under.length}枚</button></div>`
+    }
+    const dropTarget = `data-drop-player="${player}" data-drop-zone="${zone.id === "channel" ? "channel_under" : zone.id}"`
     const zoneAction = ["deck", "discard"].includes(zone.id) ? `<button class="mobile-only" data-action="inspect" data-player="${player}" data-zone="${zone.id}" aria-label="${escapeHTML(zone.label)}の一覧">一覧</button>` : ["set", "stage", "field", "hand", "colorline"].includes(zone.id) ? "" : zone.id === "channel" ? `<button data-action="deck-editor" data-player="${player}" aria-label="チャンネルを設定">設定</button>` : `<button data-action="inspect" data-player="${player}" data-zone="${zone.id}" aria-label="${escapeHTML(zone.label)}の一覧">一覧</button>`
     const listHint = ["deck", "discard"].includes(zone.id) ? ` title="ダブルクリックで一覧を表示"` : ""
     return `<section class="zone zone-${zone.id} ${zone.mode === "hand" ? "hand-zone" : ""}" aria-label="${escapeHTML(zone.label)}"${listHint} ${dropTarget}><div class="zone-head"><span class="zone-title">${names[zone.id] ? `<span class="zone-en">${names[zone.id]}</span>` : ""}${escapeHTML(zone.label)}<span class="zone-count">${ids.length}</span></span>${zoneAction}</div><div class="zone-cards ${zone.mode === "pile" ? "pile" : ""}">${content}</div></section>`
@@ -1886,7 +1938,7 @@ function syncMobileControls() {
     if (!enabled || replay.mode === "replay") mobileUi.panelOpen = false
     document.body.classList.toggle("mobile-panel-open", enabled && mobileUi.panelOpen)
     byId("sidePanel").dataset.mobileTab = ui.tab
-    byId("mobilePanelTitle").textContent = {operation: "基本操作", selection: "選択したカード", history: "履歴"}[ui.tab] || "操作"
+    byId("mobilePanelTitle").textContent = {operation: "基本操作", selection: "選択したカード", effects: "効果", history: "履歴"}[ui.tab] || "操作"
     const count = selectedIds().length
     byId("mobileSelectionCount").textContent = `${count}枚${mobileUi.multiple ? " · 複数" : ""}`
     for (const button of byId("mobileNav").querySelectorAll("[data-tab]")) {
@@ -1902,7 +1954,7 @@ function setMobilePanel(open, tab = ui.tab, restoreFocus = true) {
     const hadPanel = mobileUi.panelOpen
     if (open && (!mobileViewport?.matches || replay.mode === "replay")) return
     if (open) {
-        ui.tab = ["operation", "selection", "history"].includes(tab) ? tab : "operation"
+        ui.tab = ["operation", "selection", "effects", "history"].includes(tab) ? tab : "operation"
         mobileUi.panelOpen = true
         renderSideHead()
         renderSideContent()
@@ -1925,7 +1977,7 @@ mobileViewport?.addEventListener("change", () => {
 // SIDE_PANEL_UI_START
 function renderSideHead() {
     byId("sideHead").innerHTML = `<h3>${state.showOpponent ? "操作するプレイヤー" : "一人回し"}</h3>${state.showOpponent ? `<div class="player-switch">${visiblePlayerIds().map(player => `<button class="${state.active === player ? "current" : ""}" data-action="active" data-player="${player}">${escapeHTML(state.players[player].name)}</button>`).join("")}</div>` : `<div>${escapeHTML(state.players.p1.name)}</div>`}<button class="small full ghost" style="margin-top:9px" data-action="toggle-opponent" aria-pressed="${state.showOpponent}">${state.showOpponent ? "相手はカラーだけ表示" : "相手の全フィールドを表示"}</button><div class="turn-line"><span>ターン表示 <strong>${state.turn}</strong></span><button class="small" data-action="next-turn">次へ</button></div><div class="help-note">「次へ」では操作側を切り替えません。</div><div class="undo-row"><button data-action="undo" ${undoStack.length ? "" : "disabled"}>元に戻す</button><button data-action="redo" ${redoStack.length ? "" : "disabled"}>やり直す</button></div>`
-    byId("sideTabs").innerHTML = [["operation", "基本操作"], ["selection", `選択 ${selectedIds().length}`], ["history", "履歴"]].map(([value, label]) => `<button class="${ui.tab === value ? "active" : ""}" data-action="tab" data-tab="${value}">${label}</button>`).join("")
+    byId("sideTabs").innerHTML = [["operation", "基本操作"], ["selection", `選択 ${selectedIds().length}`], ["effects", "効果"], ["history", "履歴"]].map(([value, label]) => `<button class="${ui.tab === value ? "active" : ""}" data-action="tab" data-tab="${value}">${label}</button>`).join("")
 }
 function renderOperation() {
     return `<section class="control-group"><h3>山札と手札</h3><div class="control-row"><input id="drawCount" aria-label="引く枚数" type="number" min="1" max="500" value="${ui.drawCount}"><button data-action="draw" class="primary grow">枚引く</button></div><button data-action="shuffle" class="full">シャッフル</button><div class="control-row"><input id="peekCount" aria-label="確認する枚数" type="number" min="1" max="500" value="${ui.peekCount}"><button data-action="peek" class="grow">上から確認</button></div></section>
@@ -1969,11 +2021,27 @@ function renderSelection() {
     const selectionCard = cardHTML(id, {preview: true, reveal: revealSelection, location: place})
     const title = ids.length === 1 ? visible(id, place) || revealSelection ? item.name : "裏向きのカード" : `${ids.length}枚を選択中`
     if (ids.every(id => where(id)?.zone === "deck")) return `<div class="selected-preview">${selectionCard}<div class="selection-title">山札<br><span class="tag">${state.locations[place.player].deck.length}枚</span></div></div>${selectedDeckControls(ids)}`
-    if (ids.every(id => where(id)?.zone === "channel")) return `<div class="selected-preview">${selectionCard}<div class="selection-title">${escapeHTML(title)}</div></div><div class="control-group"><button class="full primary" data-action="deck-editor" data-player="${where(id).player}">チャンネルを設定</button></div>`
+    if (ids.every(id => where(id)?.zone === "channel")) return `<div class="selected-preview">${selectionCard}<div class="selection-title">${escapeHTML(title)}</div></div><div class="control-group"><button class="full primary" data-action="deck-editor" data-player="${where(id).player}">チャンネルを設定</button>${state.locations[place.player].channel_under.length ? `<button class="full" data-action="inspect" data-player="${place.player}" data-zone="channel_under">下の${state.locations[place.player].channel_under.length}枚を確認</button>` : ""}</div>`
     if (ids.every(id => colorForCard(id))) return `<div class="selected-preview">${selectionCard}<div class="selection-title">${escapeHTML(title)}<br><span class="tag">${ids.length}枚を選択</span></div></div>${colorSelectionHTML(ids)}<div class="control-group"><h3>そのほかの操作</h3><div class="choice-grid"><button data-action="rotate">向きを変更</button></div><p class="help-note">ドラッグでもカラーラインとにじエリアの間を移動できます。</p></div>`
     if (!visiblePlayerIds().includes(ui.movePlayer)) ui.movePlayer = "p1"
     if (!zoneById(ui.moveZone) || ui.moveZone === "channel" || ui.moveZone === "colorline" || ui.moveZone.startsWith("niji_")) ui.moveZone = "field"
-    return `<div class="selected-preview">${selectionCard}<div class="selection-title">${escapeHTML(title)}<br><span class="tag">${ids.length === 1 ? "1枚を選択" : "まとめて操作"}</span></div></div>${colorSelectionHTML(ids)}<div class="control-group"><h3>状態を変更</h3><div class="choice-grid">${ids.some(id => where(id)?.zone !== "hand") ? `<button data-action="rotate">向きを変更</button>` : ""}<button data-action="flip">表・裏を反転</button></div><div class="control-row"><button data-action="card-counter" data-delta="-1">−1</button><span class="grow" style="text-align:center">${ids.length === 1 ? `カウンター ${card.counter}` : "カウンター"}</span><button data-action="card-counter" data-delta="1">＋1</button></div><button data-action="reset-counter" class="small full" style="margin-top:6px">カウンターを0にする</button>${selectedPowerHTML(ids)}</div><div class="control-group"><h3>移動先</h3><select id="movePlayer" class="full">${visiblePlayerIds().map(player => `<option value="${player}" ${player === ui.movePlayer ? "selected" : ""}>${escapeHTML(state.players[player].name)}</option>`).join("")}</select><div class="control-row"><select id="moveZone" class="grow">${destinationOptions(ui.moveZone)}</select></div><div class="control-row"><select id="movePosition" class="grow"><option value="last" ${ui.position === "last" ? "selected" : ""}>下・末尾へ</option><option value="first" ${ui.position === "first" ? "selected" : ""}>上・先頭へ</option></select><button data-action="move-selected" class="primary">移動</button></div></div>${ids.length === 1 ? `<div class="control-group"><h3>このカードの一時メモ</h3><textarea id="cardNote" maxlength="2000" placeholder="効果や一時的な状態を記録">${escapeHTML(card.note)}</textarea><button class="small full" style="margin-top:5px" data-action="save-note">メモを反映</button></div>` : ""}`
+    return `<div class="selected-preview">${selectionCard}<div class="selection-title">${escapeHTML(title)}<br><span class="tag">${ids.length === 1 ? "1枚を選択" : "まとめて操作"}</span></div></div>${colorSelectionHTML(ids)}<div class="control-group"><h3>状態を変更</h3><div class="choice-grid">${ids.some(id => where(id)?.zone !== "hand") ? `<button data-action="rotate">向きを変更</button>` : ""}<button data-action="flip">表・裏を反転</button></div><div class="control-row"><button data-action="card-counter" data-delta="-1">−1</button><span class="grow" style="text-align:center">${ids.length === 1 ? `カウンター ${card.counter}` : "カウンター"}</span><button data-action="card-counter" data-delta="1">＋1</button></div><button data-action="reset-counter" class="small full" style="margin-top:6px">カウンターを0にする</button>${selectedPowerHTML(ids)}</div>${ids.every(id => ["discard", "channel_under"].includes(where(id)?.zone)) && ids.every(id => where(id).zone === place.zone) ? pileMoveControls(place.zone) : `<div class="control-group"><h3>移動先</h3><select id="movePlayer" class="full">${visiblePlayerIds().map(player => `<option value="${player}" ${player === ui.movePlayer ? "selected" : ""}>${escapeHTML(state.players[player].name)}</option>`).join("")}</select><div class="control-row"><select id="moveZone" class="grow">${destinationOptions(ui.moveZone)}</select></div><div class="control-row"><select id="movePosition" class="grow"><option value="last" ${ui.position === "last" ? "selected" : ""}>下・末尾へ</option><option value="first" ${ui.position === "first" ? "selected" : ""}>上・先頭へ</option></select><button data-action="move-selected" class="primary">移動</button></div></div>`}${ids.length === 1 ? `<div class="control-group"><h3>このカードの一時メモ</h3><textarea id="cardNote" maxlength="2000" placeholder="効果や一時的な状態を記録">${escapeHTML(card.note)}</textarea><button class="small full" style="margin-top:5px" data-action="save-note">メモを反映</button></div>` : ""}`
+}
+function selectedEffectVisible(id) {
+    const place = where(id)
+    if (!place) return false
+    const inspecting = byId("modal").open && ((modalKind === "zone" && inspectContext?.player === place.player && inspectContext?.zone === place.zone && inspectorIds().includes(id)) || (modalKind === "preview" && previewCardId === id))
+    if (place.zone === "deck") return inspecting
+    return inspecting || visible(id, place) || (place.player === state.active && (place.zone === "set" || !!colorForCard(id)))
+}
+function renderEffects() {
+    const ids = selectedIds()
+    if (!ids.length) return '<div class="empty-help">カードを選択すると、効果を表示します。</div>'
+    return ids.map(id => {
+        if (!selectedEffectVisible(id)) return '<section class="selected-effect"><h3>裏向きのカード</h3></section>'
+        const item = definition(id)
+        return `<section class="selected-effect"><h3>${escapeHTML(item.name)}</h3>${cardTagsHTML(item)}<p class="selected-effect-text">${escapeHTML(item.text || "効果は未登録です。")}</p></section>`
+    }).join("")
 }
 function historyHTML() {
     return `<div class="history-toolbar"><button class="small full" data-action="clear-history" ${state.log.length ? "" : "disabled"}>履歴を初期化</button></div>${state.log.length ? [...state.log].reverse().map(item => `<div class="log-item"><time>${escapeHTML(new Date(item.time).toLocaleTimeString())}</time>${escapeHTML(item.label)}</div>`).join("") : `<div class="empty-help">履歴はありません。</div>`}`
@@ -1981,6 +2049,7 @@ function historyHTML() {
 function renderSideContent() {
     if (ui.tab === "operation") byId("sideContent").innerHTML = renderOperation()
     else if (ui.tab === "selection") byId("sideContent").innerHTML = mobileSelectionTools(true) + renderSelection()
+    else if (ui.tab === "effects") byId("sideContent").innerHTML = renderEffects()
     else byId("sideContent").innerHTML = historyHTML()
     syncMobileControls()
 }
@@ -2041,7 +2110,7 @@ function preview(id) {
     previewCardId = id
     const item = definition(id)
     const card = state.cards[id]
-    openModal("カードの内容を確認", `<div class="big-preview">${cardHTML(id, {reveal: true, preview: true})}<div><h2>${escapeHTML(item.name)}</h2>${cardTagsHTML(item)}<p class="description">${escapeHTML(item.text || "カードの説明は未登録です。")}</p>${card.note ? `<h3 style="margin-top:20px">このカードの一時メモ</h3><p class="description">${escapeHTML(card.note)}</p>` : ""}${where(id)?.zone === "deck" ? `<div style="margin-top:20px">${deckMoveControls(id)}</div>` : ""}</div></div>`, "preview")
+    openModal("カードの内容を確認", `<div class="big-preview">${cardHTML(id, {reveal: true, preview: true})}<div><h2>${escapeHTML(item.name)}</h2>${cardTagsHTML(item)}<p class="description">${escapeHTML(item.text || "カードの説明は未登録です。")}</p>${card.note ? `<h3 style="margin-top:20px">このカードの一時メモ</h3><p class="description">${escapeHTML(card.note)}</p>` : ""}${["deck", "discard", "channel_under"].includes(where(id)?.zone) ? `<div style="margin-top:20px">${pileMoveControls(where(id).zone, id)}</div>` : ""}</div></div>`, "preview")
     captureReplayFrame(where(id)?.zone === "deck" ? `${state.players[where(id).player].name}の山札のカードを確認` : "山札の確認を終了")
 }
 function returnToInspector() {
@@ -2069,11 +2138,12 @@ function inspectZone(player, zone, limit = null) {
     captureReplayFrame(zone === "deck" ? `${state.players[player].name}の山札を${limit === null ? "すべて確認" : `上から${snapshot.length}枚確認`}` : "山札の確認を終了")
     render()
 }
-function deckMoveControls(sourceCard = "") {
-    const source = sourceCard ? ` data-source-card="${sourceCard}"` : ""
-    const player = sourceCard ? where(sourceCard).player : inspectContext.player
-    return `<section class="control-group deck-move-controls"><h3>移動先</h3><div class="control-row"><select id="deckMoveDestination" class="grow" aria-label="移動先">${destinationOptions(ui.deckMoveZone, player, false, true)}</select></div><div class="control-row"><select id="deckMovePosition" class="grow" aria-label="移動する順番"><option value="last" ${ui.position === "last" ? "selected" : ""}>下・末尾へ</option><option value="first" ${ui.position === "first" ? "selected" : ""}>上・先頭へ</option></select><button data-action="deck-move"${source} class="primary">移動</button></div></section>`
+function pileMoveControls(sourceZone, sourceCard = "") {
+    const destinations = [["field", "フィールド"], ["field-rotated", "フィールド（横）"], ["set", "セット"], ["stage", "ステージ"], ...(sourceZone === "discard" ? [] : [["discard", "ログ"]]), ["channel_under", "チャンネルの下"]]
+    const value = destinations.some(([id]) => id === ui.pileMoveZone) ? ui.pileMoveZone : "field"
+    return `<section class="control-group deck-move-controls pile-move-controls" data-source-zone="${sourceZone}"${sourceCard ? ` data-source-card="${sourceCard}"` : ""}><h3>移動先</h3><div class="control-row"><select data-pile-side aria-label="移動先のプレイヤー"><option value="self" ${ui.pileMoveSide === "self" ? "selected" : ""}>自分</option><option value="opponent" ${ui.pileMoveSide === "opponent" ? "selected" : ""}>相手</option></select><select data-pile-destination class="grow" aria-label="移動先">${destinations.map(([id, label]) => `<option value="${id}" ${id === value ? "selected" : ""}>${label}</option>`).join("")}</select><button data-action="pile-move" class="primary">移動</button></div><div class="control-row pile-deck-shortcuts"><button data-action="pile-move" data-pile-position="last">山札の下へ</button>${sourceZone === "deck" ? "" : '<button data-action="pile-move" data-pile-position="first">山札の上へ</button>'}</div></section>`
 }
+function deckMoveControls(sourceCard = "") {return pileMoveControls("deck", sourceCard)}
 function inspectorIds() {
     if (!inspectContext || !zoneById(inspectContext.zone)) return []
     const all = state.locations[inspectContext.player][inspectContext.zone]
@@ -2096,10 +2166,10 @@ function renderZoneInspector() {
     const visible = visibleInspectorIds(ids)
     const start = inspectContext.page * currentInspectorPageSize()
     const pages = Math.max(1, Math.ceil(ids.length / currentInspectorPageSize()))
-    const moves = zone === "deck" ? deckMoveControls() : `<select id="inspectDestination">${destinationOptions(ui.moveZone, player, zone === "colorline" || (ids.length > 0 && ids.every(id => colorForCard(id))))}</select><button data-action="inspect-move" data-position="last" class="primary">同じプレイヤーの移動先へ</button><button data-action="inspect-bottom">山札の下へ</button><button data-action="inspect-top">山札の上へ</button>`
+    const moves = ["deck", "discard", "channel_under"].includes(zone) ? pileMoveControls(zone) : `<select id="inspectDestination">${destinationOptions(ui.moveZone, player, zone === "colorline" || (ids.length > 0 && ids.every(id => colorForCard(id))))}</select><button data-action="inspect-move" data-position="last" class="primary">同じプレイヤーの移動先へ</button><button data-action="inspect-bottom">山札の下へ</button><button data-action="inspect-top">山札の上へ</button>`
     const summary = limit === null ? `全${all.length}枚` : `確認した${inspectContext.originalCount}枚のうち残り${ids.length}枚（ゾーン内${all.length}枚）`
     const range = ids.length ? `${start + 1}〜${start + visible.length}枚目を表示` : ""
-    const rows = visible.map((id, index) => `<div class="inspect-item"><span class="position-label">${start + index + 1}${id === all[0] ? " / 先頭" : ""}</span>${cardHTML(id, {reveal: true, location: {player, zone}})}<div class="inspect-name">${escapeHTML(definition(id).name)}</div></div>`).join("")
+    const rows = visible.map((id, index) => `<div class="inspect-item"><span class="position-label">${start + index + 1}${id === all[0] ? " / 先頭" : ""}</span>${cardHTML(id, {reveal: true, location: {player, zone}})}<div class="inspect-name">${escapeHTML(definition(id).name)}</div>${zone === "channel_under" ? `<button class="small" data-action="channel-under-remove" data-source-card="${id}">ログへ</button>` : ""}</div>`).join("")
     const deckDrop = zone === "deck" && limit === null ? ` data-drop-player="${player}" data-drop-zone="deck" data-inspector-drop="true"` : ""
     const deckOrder = zone === "deck" && limit === null ? `<div class="deck-order-controls"><label>山札内の位置（上から）<input id="inspectDeckPosition" type="number" min="1" max="${all.length}" value="1"></label><button data-action="inspect-reorder" class="small" ${all.length ? "" : "disabled"}>選択カードを移動</button></div>` : ""
     byId("modalTitle").textContent = `${state.players[player].name} / ${zoneById(zone).label}`
@@ -2846,7 +2916,7 @@ function deleteZone(id) {
     showSettings()
 }
 function showHelp() {
-    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>標準のカードは最初から登録されており、すぐにデッキを作れます。カードを追加・更新する場合は、「カード登録」の「Excelを取り込む」で.xlsxファイルを選ぶと、カード一覧を表示します。内容を確認し、使うカードを選んで登録してください。カード名・種別・クラス・色・レベル・パワー・タグ・効果を読み取ります。「効果を見る」で全文を確認できます。同じIDの登録済みカードには、未入力の効果・色・タグを追加できます。設定済みの効果・色と他の項目は保持します。色はライバーカードだけに反映します。カードごとの画像の追加や、文字カードの手入力もできます。文字カードにはIDを入力・編集できます。ライバー・イベント・ステージ・チャンネルにはカンマ区切りでタグを登録でき、空白と#を除いて保存します。タグは詳細画面と検索に使い、カードの表面には表示しません。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にレベル、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、レベルの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにレベルはありません。未設定の項目は表示しません。カード登録の一覧にはユーザーが追加したカードだけを12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。標準カードはデッキ管理のカード一覧から使えます。「デッキ管理」の専用ページで名前付きのデッキを複数保存できます。左にカードの詳細、中央にチャンネルとデッキ、右に追加用カード一覧を表示します。保存は盤面を変更せず、編集画面は開いたままです。盤面の「デッキを選ぶ」から保存デッキを山札とチャンネルへ反映してください。カード登録は両ページで共有します。「画像出力」では、カード画像・名前・ID・枚数を1枚のPNGにまとめます。「TXT出力」でデッキ名・チャンネル・カードのID・名前・枚数・並び順をテキストに保存できます。「TXT読込」で確認後、新しいデッキとして編集できます。標準カード以外を使う場合は、先にそのカードを登録してください。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。中央のデッキ欄には編集中のカードと枚数を表示し、枚数を直接変更できます。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。Excelは「全カード」シートを優先し、ID・カード名・種類・クラス・レベル・Powerと、任意のColors・効果列を読みます。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」はPCでは50枚ずつ、スマートフォンでは24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードをクリックして複数選択し、移動先と「上・先頭へ／下・末尾へ」を選んで「移動」を押します。移動先には「フィールド（横向き）」も選べます。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」ではユーザーが追加したカード情報・画像だけを含むJSONを保存し、標準カードはCSVから復元します。「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でユーザーが追加したカード情報・画像と、デッキ・盤面・メモを保存できます。標準カードの情報は含めず、読込時にCSVから復元します。標準カードに加えた編集や画像もJSONには含めません。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><section class="mobile-only" style="flex-direction:column"><h3>スマートフォンの操作</h3><p>画面下の「基本操作」「選択」「履歴」で操作欄を開き、「盤面」で戻ります。カードをタップしてから「選択」を開くと、移動や表裏の変更、内容の確認ができます。「複数選択」をオンにするとカードをまとめて選べます。山札・ログの「一覧」からも、1枚を選んで「内容を確認」を開けます。カードが多いゾーンは横にスワイプできます。</p></section><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>ローカルではフォルダ内のlaunch.batから起動してください。PC内のサーバーを経由して開き、default-cards.csvから標準カードを自動で読み込みます。CSVの取得以外にアプリから通信することはなく、データ保存・画像変換は端末内で行います。アカウントや外部APIは不要です。HTMLファイルを直接開いた以前の保存データは、その画面からJSON保存して、起動後の画面で読み込んでください。公式のカード画像やイラストは同梱していません。</p></div>`, "help")
+    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>標準のカードは最初から登録されており、すぐにデッキを作れます。カードを追加・更新する場合は、「カード登録」の「Excelを取り込む」で.xlsxファイルを選ぶと、カード一覧を表示します。内容を確認し、使うカードを選んで登録してください。カード名・種別・クラス・色・レベル・パワー・タグ・効果を読み取ります。「効果を見る」で全文を確認できます。同じIDの登録済みカードには、未入力の効果・色・タグを追加できます。設定済みの効果・色と他の項目は保持します。色はライバーカードだけに反映します。カードごとの画像の追加や、文字カードの手入力もできます。文字カードにはIDを入力・編集できます。ライバー・イベント・ステージ・チャンネルにはカンマ区切りでタグを登録でき、空白と#を除いて保存します。タグは詳細画面と検索に使い、カードの表面には表示しません。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にレベル、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、レベルの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにレベルはありません。未設定の項目は表示しません。カード登録の一覧にはユーザーが追加したカードだけを12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。標準カードはデッキ管理のカード一覧から使えます。「デッキ管理」の専用ページで名前付きのデッキを複数保存できます。左にカードの詳細、中央にチャンネルとデッキ、右に追加用カード一覧を表示します。保存は盤面を変更せず、編集画面は開いたままです。盤面の「デッキを選ぶ」から保存デッキを山札とチャンネルへ反映してください。カード登録は両ページで共有します。「画像出力」では、カード画像・名前・ID・枚数を1枚のPNGにまとめます。「TXT出力」でデッキ名・チャンネル・カードのID・名前・枚数・並び順をテキストに保存できます。「TXT読込」で確認後、新しいデッキとして編集できます。標準カード以外を使う場合は、先にそのカードを登録してください。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。中央のデッキ欄には編集中のカードと枚数を表示し、枚数を直接変更できます。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。Excelは「全カード」シートを優先し、ID・カード名・種類・クラス・レベル・Powerと、任意のColors・効果列を読みます。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。「選択」と「履歴」の間の「効果」タブでは、選択したカードの効果を読めます。開いたまま別のカードを選ぶと表示が切り替わります。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。ログは最後に送ったカードが先頭です。通常カードはチャンネル欄へドラッグするか、移動先の「チャンネルの下」で重ねられます。「下 ○枚」で一覧を開き、各カードの「ログへ」で1枚ずつ取り除けます。チャンネルを先に設定してください。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」はPCでは50枚ずつ、スマートフォンでは24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードを選択し、「自分／相手」と「フィールド／フィールド（横）／セット／ステージ／ログ／チャンネルの下」を選んで「移動」を押します。「山札の下へ」も使えます。ログからは「ログ」を除く同じ移動先と、「山札の下へ」「山札の上へ」を使えます。「自分／相手」は操作側を基準にし、山札の上下へのボタンは元のプレイヤーの山札へ戻します。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」ではユーザーが追加したカード情報・画像だけを含むJSONを保存し、標準カードはCSVから復元します。「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でユーザーが追加したカード情報・画像と、デッキ・盤面・メモを保存できます。標準カードの情報は含めず、読込時にCSVから復元します。標準カードに加えた編集や画像もJSONには含めません。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><section class="mobile-only" style="flex-direction:column"><h3>スマートフォンの操作</h3><p>画面下の「基本操作」「選択」「効果」「履歴」で操作欄を開き、「盤面」で戻ります。カードをタップしてから「選択」を開くと、移動や表裏の変更、内容の確認ができます。「複数選択」をオンにするとカードをまとめて選べます。山札・ログの「一覧」からも、1枚を選んで「内容を確認」を開けます。カードが多いゾーンは横にスワイプできます。</p></section><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>ローカルではフォルダ内のlaunch.batから起動してください。PC内のサーバーを経由して開き、default-cards.csvから標準カードを自動で読み込みます。CSVの取得以外にアプリから通信することはなく、データ保存・画像変換は端末内で行います。アカウントや外部APIは不要です。HTMLファイルを直接開いた以前の保存データは、その画面からJSON保存して、起動後の画面で読み込んでください。公式のカード画像やイラストは同梱していません。</p></div>`, "help")
 }
 function checkState(candidate, images, deep = false) {
     const object = value => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -2872,7 +2942,7 @@ function checkState(candidate, images, deep = false) {
         zoneIds.add(zone.id)
     }
     require(["deck", "hand", "discard"].every(id => zoneIds.has(id)), "Required zones are missing.")
-    if (candidate.layoutVersion === 2) require(defaultZones().every(zone => zoneIds.has(zone.id)), "Playmat zones are missing.")
+    if (candidate.layoutVersion === 2) require(defaultZones().filter(zone => zone.id !== "channel_under").every(zone => zoneIds.has(zone.id)), "Playmat zones are missing.")
     require(candidate.zones.find(zone => zone.id === "deck").mode === "pile" && candidate.zones.find(zone => zone.id === "hand").mode === "hand", "Invalid deck or hand mode.")
     require(object(images) && Object.keys(images).length <= 1000, "Invalid image collection.")
     if (deep) {
@@ -2944,6 +3014,7 @@ function checkState(candidate, images, deep = false) {
             require(candidate.rulesVersion !== 1 || !["set", "stage", "channel"].includes(zone.id) || ids.length <= 1, "Set, stage, and channel each hold at most one card.")
             for (const id of ids) {
                 require(safeId(id) && Object.hasOwn(candidate.cards, id) && !located.has(id), "A card is duplicated or missing.")
+                if (zone.id === "channel_under") require(candidate.locations[player].channel.length === 1 && !isColorDefinition(candidate.catalog[candidate.cards[id].definition]) && textCardType(candidate.catalog[candidate.cards[id].definition]) !== "channel", "Invalid card under a channel.")
                 located.add(id)
             }
         }
@@ -3252,6 +3323,15 @@ function handleAction(button) {
         if (id) preview(id)
     }
     else if (action === "move-selected") moveCards(selectedIds(), ui.movePlayer, ui.moveZone, ui.position)
+    else if (action === "pile-move") {
+        const controls = button.closest(".pile-move-controls")
+        if (!controls) return
+        const shortcut = button.dataset.pilePosition
+        movePileSelection(controls.dataset.sourceZone, shortcut ? "deck" : controls.querySelector("select[data-pile-destination]").value, shortcut ? "source" : controls.querySelector("select[data-pile-side]").value, controls.dataset.sourceCard, shortcut || "last")
+    }
+    else if (action === "channel-under-remove") {
+        movePileSelection("channel_under", "discard", "source", button.dataset.sourceCard)
+    }
     else if (action === "deck-move") {
         const destination = byId("deckMoveDestination").value
         const position = byId("deckMovePosition").value === "first" ? "first" : "last"
@@ -3377,7 +3457,7 @@ document.addEventListener("click", event => {
     else ui.selection.add(id)
     const place = where(id)
     ui.movePlayer = place.player
-    ui.tab = "selection"
+    if (ui.tab !== "effects") ui.tab = "selection"
     refreshSelectionUI()
 })
 document.addEventListener("dblclick", event => {
@@ -3430,6 +3510,8 @@ document.addEventListener("change", event => {
         normalizePlayerView()
         renderSideContent()
     }
+    else if (element.matches("select[data-pile-side]")) ui.pileMoveSide = element.value === "opponent" ? "opponent" : "self"
+    else if (element.matches("select[data-pile-destination]")) ui.pileMoveZone = element.value
     else if (element.id === "moveZone" || element.id === "inspectDestination") ui.moveZone = element.value
     else if (element.id === "deckMoveDestination") ui.deckMoveZone = element.value
     else if (element.id === "movePosition" || element.id === "deckMovePosition") ui.position = element.value
@@ -3530,7 +3612,7 @@ function boardDropPosition(zone, event) {
     const current = state.locations[player]?.[zoneId]
     const cardsBox = zone.querySelector(".zone-cards")
     if (!current || !cardsBox) return null
-    if (zoneById(zoneId)?.mode === "pile") return {boundary: current.length, reference: null}
+    if (zoneId === "channel_under" || zoneById(zoneId)?.mode === "pile") return {boundary: current.length, reference: null}
     const currentIds = new Set(current)
     const elements = [...cardsBox.querySelectorAll("[data-card-id]")]
         .filter(element => currentIds.has(element.dataset.cardId))
@@ -3633,7 +3715,7 @@ document.addEventListener("drop", event => {
         if (!Array.isArray(ids) || !ids.every(id => typeof id === "string" && Object.hasOwn(state.cards, id))) return
         ui.selection = new Set(ids)
         ui.movePlayer = zone.dataset.dropPlayer
-        ui.tab = "selection"
+        if (ui.tab !== "effects") ui.tab = "selection"
         if (!dropCardsAt([...new Set(ids)], zone.dataset.dropPlayer, zone.dataset.dropZone, position.boundary, zone.dataset.inspectorDrop === "true")) refreshSelectionUI()
     } catch (error) {
         console.error("Drag operation failed", error)
