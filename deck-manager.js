@@ -121,13 +121,32 @@ function deckManagerColorCountsHTML(){
  }
  return nijiColors.map(color=>`<span class="dm-deck-color-count" role="listitem" title="${deckManagerColorNames[color]}：${counts[color]}枚"><span class="dm-color-dot dm-color-${color.toLowerCase()}" aria-hidden="true"></span><span class="sr-only">${deckManagerColorNames[color]}</span><span>：<strong>${counts[color]}</strong></span></span>`).join('')
 }
+function deckManagerCostCurveHTML(){
+ const counts=new Map();let unknown=0
+ for(const entry of deckManager.draft?.list||[]){
+  if(!deckManagerMain(entry.definition))continue
+  const item=state.catalog[entry.definition],count=deckManagerCount(entry.count)
+  if(!count)continue
+  if(Number.isInteger(item.cost)&&item.cost>=0&&item.cost<=999)counts.set(item.cost,(counts.get(item.cost)||0)+count)
+  else unknown+=count
+ }
+ const highest=Math.max(7,...counts.keys()),levels=highest<=12?Array.from({length:highest+1},(_,level)=>level):[...new Set([0,1,2,3,4,5,6,7,...counts.keys()])].sort((a,b)=>a-b)
+ const columns=levels.map(level=>({label:String(level),count:counts.get(level)||0}))
+ if(unknown)columns.push({label:'未設定',count:unknown})
+ const maximum=Math.max(1,...columns.map(column=>column.count))
+ const bars=columns.map(({label,count})=>{
+  const title=`${label==='未設定'?'レベル未設定':`レベル ${label}`}：${count}枚`
+  return `<div class="dm-cost-column" role="listitem" aria-label="${escapeHTML(title)}" title="${escapeHTML(title)}"><span class="dm-cost-value" aria-hidden="true">${count}</span><span class="dm-cost-track" aria-hidden="true"><span class="dm-cost-fill" style="height:${count/maximum*100}%"></span></span><span class="dm-cost-label" aria-hidden="true">${label}</span></div>`
+ }).join('')
+ return `<h3>レベル分布<span>（コストカーブ）</span></h3><div class="dm-cost-chart${unknown?" has-unknown":""}" role="list" aria-label="デッキ内のレベル別枚数" style="--dm-cost-columns:${levels.length}">${bars}</div>`
+}
 function deckManagerDeckContentsHTML(){
  const draft=deckManager.draft,channel=deckManagerChannel(draft.channelDefinition)?state.catalog[draft.channelDefinition]:null,entries=draft.list.filter(entry=>deckManagerMain(entry.definition)&&entry.count>0)
  const tiles=entries.map(entry=>{
   const item=state.catalog[entry.definition],id=escapeHTML(entry.definition)
   return `<article class="dm-included-card ${deckManager.selected===entry.definition?'is-selected':''}" data-manager-entry="${id}"><button class="dm-select-card" draggable="true" data-manager-drag-definition="${id}" data-manager-drag-origin="deck" data-action="manager-select" data-definition="${id}" aria-label="${escapeHTML(item.name)}の内容">${deckDefinitionFaceHTML(item)}<span class="dm-card-name">${escapeHTML(item.name)}</span></button><div class="dm-quantity"><button data-action="manager-minus" data-definition="${id}" aria-label="${escapeHTML(item.name)}を1枚減らす">−</button><input data-manager-quantity="${id}" type="number" min="0" max="500" value="${entry.count}" aria-label="${escapeHTML(item.name)}の枚数"><button data-action="manager-plus" data-definition="${id}" aria-label="${escapeHTML(item.name)}を1枚増やす">＋</button></div></article>`
  }).join('')
- return `<section class="dm-channel-section" data-manager-drop="channel"><div class="dm-section-heading"><h3>チャンネル</h3><button class="small" data-action="manager-channel-mode">${channel?'変更':'選ぶ'}</button></div>${channel?`<div class="dm-channel-selection"><button data-action="manager-select" data-definition="${escapeHTML(draft.channelDefinition)}" draggable="true" data-manager-drag-definition="${escapeHTML(draft.channelDefinition)}" data-manager-drag-origin="channel" class="dm-channel-card">${deckDefinitionFaceHTML(channel)}</button><div><strong>${escapeHTML(channel.name)}</strong>${channel.sourceCardKey?`<small>ID: ${escapeHTML(channel.sourceCardKey)}</small>`:''}<button class="small" data-action="manager-clear-channel">外す</button></div></div>`:'<button class="dm-channel-empty" data-action="manager-channel-mode"><span>＋</span> チャンネルを選択</button>'}</section><section class="dm-main-section" data-manager-drop="main"><div class="dm-section-heading"><h3>デッキ <span>${deckManagerTotal(draft)}枚</span></h3><span>${entries.length}種類</span></div><div class="dm-deck-grid">${tiles||'<div class="dm-deck-empty"><span aria-hidden="true">＋</span><p>右のカード一覧から、カードを追加してください。</p></div>'}</div><div id="managerColorCounts" class="dm-deck-color-counts" role="list" aria-label="デッキ内の色別枚数">${deckManagerColorCountsHTML()}</div></section>`
+ return `<section class="dm-channel-section" data-manager-drop="channel"><div class="dm-section-heading"><h3>チャンネル</h3><button class="small" data-action="manager-channel-mode">${channel?'変更':'選ぶ'}</button></div>${channel?`<div class="dm-channel-selection"><button data-action="manager-select" data-definition="${escapeHTML(draft.channelDefinition)}" draggable="true" data-manager-drag-definition="${escapeHTML(draft.channelDefinition)}" data-manager-drag-origin="channel" class="dm-channel-card">${deckDefinitionFaceHTML(channel)}</button><div><strong>${escapeHTML(channel.name)}</strong>${channel.sourceCardKey?`<small>ID: ${escapeHTML(channel.sourceCardKey)}</small>`:''}<button class="small" data-action="manager-clear-channel">外す</button></div></div>`:'<button class="dm-channel-empty" data-action="manager-channel-mode"><span>＋</span> チャンネルを選択</button>'}</section><section class="dm-main-section" data-manager-drop="main"><div class="dm-section-heading"><h3>デッキ <span>${deckManagerTotal(draft)}枚</span></h3><span>${entries.length}種類</span></div><div class="dm-deck-grid">${tiles||'<div class="dm-deck-empty"><span aria-hidden="true">＋</span><p>右のカード一覧から、カードを追加してください。</p></div>'}</div><div id="managerColorCounts" class="dm-deck-color-counts" role="list" aria-label="デッキ内の色別枚数">${deckManagerColorCountsHTML()}</div><section id="managerCostCurve" class="dm-cost-curve" aria-label="レベル分布">${deckManagerCostCurveHTML()}</section></section>`
 }
 function deckManagerFilteredCatalog(){
  const normalize=value=>String(value||'').normalize('NFKC').toLocaleLowerCase('ja'),terms=normalize(deckManager.query).trim().split(/\s+/).filter(Boolean)
@@ -173,6 +192,7 @@ function renderDeckPage(){
  root.innerHTML=deckManager.view==='editor'&&deckManager.draft?deckManagerEditorHTML():deckManagerGalleryHTML();root.inert=deckManager.saving;scheduleDeckManagerViewport()
  if(focusKey&&!deckManager.saving){const restored=quantityFocus?[...root.querySelectorAll('[data-manager-quantity]')].find(element=>element.dataset.managerQuantity===focusKey):byId(focusKey);if(restored){restored.focus({preventScroll:true});if(selection&&typeof restored.setSelectionRange==='function')try{restored.setSelectionRange(...selection)}catch{}}}
  deckManagerRemember()
+ if(typeof syncDeckManagerHistory==='function')syncDeckManagerHistory()
 }
 function deckManagerRefreshParts({catalog=true,contents=true,detail=true,resetCatalogScroll=false}={}){
  if(deckManager.view!=='editor'||!deckManager.draft)return
@@ -206,6 +226,7 @@ function deckManagerSetQuantity(id,value,rerender=true){
   deckManagerRefreshParts({contents:false})
   const title=byId('managerContents')?.querySelector('.dm-main-section h3 span');if(title)title.textContent=`${deckManagerTotal(deckManager.draft)}枚`
   const colors=byId('managerColorCounts');if(colors)colors.innerHTML=deckManagerColorCountsHTML()
+  const curve=byId('managerCostCurve');if(curve)curve.innerHTML=deckManagerCostCurveHTML()
  }
  return true
 }
@@ -418,6 +439,7 @@ function handleDeckManagerDragOver(event) {
   if (position) position.tile.classList.add(position.after ? 'dm-drop-after' : 'dm-drop-before')
  }
 }
+
 function handleDeckManagerDrop(event) {
  const target = deckManagerDropTarget(event), id = deckManagerDragDefinition, origin = deckManagerDragOrigin
  if (!target) {clearDeckManagerDrag(); return false}

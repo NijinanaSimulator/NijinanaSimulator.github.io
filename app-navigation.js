@@ -116,8 +116,74 @@ function restoreLocalDeckHash() {
     const url = appRootURL(appPage === 'deck' ? 'deck' : '')
     history.replaceState(null, '', url)
 }
+// Keep one browser-history step between the deck list and its editor.
+let deckManagerHistoryRenderedView = null
+let deckManagerHistoryPending = false
+let deckManagerHistoryConsuming = false
+function deckManagerHistoryView(value = history.state) {
+    return value?.nijinanaDeckView === 'editor' ? 'editor' : value?.nijinanaDeckView === 'gallery' ? 'gallery' : null
+}
+function deckManagerHistoryState(view) {
+    const previous = history.state && typeof history.state === 'object' && !Array.isArray(history.state) ? history.state : {}
+    return {...previous, nijinanaDeckView: view}
+}
+function syncDeckManagerHistory() {
+    if (!appRootEntry || appPage !== 'deck' || deckManagerHistoryPending || deckManagerHistoryConsuming) return
+    const view = deckManager.view === 'editor' && deckManager.draft ? 'editor' : 'gallery'
+    const previousView = deckManagerHistoryRenderedView
+    deckManagerHistoryRenderedView = view
+    const current = deckManagerHistoryView()
+    if (view === 'editor') {
+        if (current === 'editor') return
+        if (current !== 'gallery') history.replaceState(deckManagerHistoryState('gallery'), '', appDeckManagerURL())
+        history.pushState(deckManagerHistoryState('editor'), '', appDeckManagerURL())
+    } else if (current === 'editor' && previousView === 'editor') {
+        deckManagerHistoryConsuming = true
+        history.back()
+    } else if (current !== 'gallery') history.replaceState(deckManagerHistoryState('gallery'), '', appDeckManagerURL())
+}
+function restoreDeckManagerEditorHistory() {
+    // Recreate the editor step after a cancelled Back without adding another list step.
+    if (location.hash !== '#deck' || deckManagerHistoryView() !== 'gallery') history.replaceState(deckManagerHistoryState('gallery'), '', appDeckManagerURL())
+    history.pushState(deckManagerHistoryState('editor'), '', appDeckManagerURL())
+    deckManagerHistoryRenderedView = 'editor'
+}
+window.addEventListener('popstate', async event => {
+    if (!appRootEntry || appPage !== 'deck' || localDeckLegacyEntry || localDeckBridge) return
+    if (deckManagerHistoryPending) {
+        // Keep repeated Back presses inside the list while the three-way choice is open.
+        if (location.hash !== '#deck') history.pushState(deckManagerHistoryState('gallery'), '', appDeckManagerURL())
+        else if (deckManagerHistoryView(event.state) !== 'gallery') history.replaceState(deckManagerHistoryState('gallery'), '', appDeckManagerURL())
+        return
+    }
+    if (deckManagerHistoryConsuming) {
+        deckManagerHistoryConsuming = false
+        deckManagerHistoryRenderedView = 'gallery'
+        if (location.hash === '#deck') history.replaceState(deckManagerHistoryState('gallery'), '', appDeckManagerURL())
+        return
+    }
+    if (deckManager.view !== 'editor' || !deckManager.draft) {
+        // A discarded draft cannot reopen through Forward.
+        if (location.hash === '#deck' && deckManagerHistoryView(event.state) === 'editor') history.replaceState(deckManagerHistoryState('gallery'), '', appDeckManagerURL())
+        return
+    }
+    if (location.hash === '#deck' && deckManagerHistoryView(event.state) === 'editor') return
+    deckManagerHistoryPending = true
+    try {
+        if (location.hash !== '#deck') history.pushState(deckManagerHistoryState('gallery'), '', appDeckManagerURL())
+        if (!(await confirmDeckManagerLeave())) {restoreDeckManagerEditorHistory(); return}
+        discardDeckManagerDraft()
+        if (byId('modal')?.open) closeModal(false)
+        renderDeckPage()
+        history.replaceState(deckManagerHistoryState('gallery'), '', appDeckManagerURL())
+        deckManagerHistoryRenderedView = 'gallery'
+    } catch (error) {
+        if (deckManager.view === 'editor' && deckManager.draft) restoreDeckManagerEditorHistory()
+        notify(`移動できませんでした。${error.message}`, true)
+    } finally {deckManagerHistoryPending = false}
+})
 window.addEventListener('hashchange', async () => {
-    if (!appRootEntry || localDeckHashNavigation || (location.hash === '#deck' ? 'deck' : 'board') === appPage) return
+    if (!appRootEntry || localDeckHashNavigation || deckManagerHistoryPending || deckManagerHistoryConsuming || (location.hash === '#deck' ? 'deck' : 'board') === appPage) return
     localDeckHashNavigation = true
     try {
         if (appPage === 'deck' && !(await confirmDeckManagerLeave())) {restoreLocalDeckHash(); return}
