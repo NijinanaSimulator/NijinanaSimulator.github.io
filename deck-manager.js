@@ -42,8 +42,7 @@ function deckManagerRoot(){let root=byId('deckPage');if(!root){root=document.cre
 function deckDefinitionFaceHTML(definition){
  const item=typeof definition==='string'?state.catalog[definition]:definition
  if(!item)return '<span class="dm-card-face card"><span class="dm-empty-symbol">◇</span></span>'
- const picture=item.asset?`<img src="${escapeHTML(cachedCardImageURL(item.asset))}" alt="${escapeHTML(item.name)}" draggable="false" loading="lazy" decoding="async">`:''
- return `<span class="dm-card-face card ${picture?'':'text-card'}">${picture?liverImageFaceHTML(item,picture):textCardFaceHTML(item)}</span>`
+ return `<span class="dm-card-face card ${cardImageURL(item)?'':'text-card'}">${cardFaceHTML(item)}</span>`
 }
 function deckManagerCardSummary(item){
  const type=textCardType(item),parts=[textCardTypes[type]||'カード']

@@ -764,10 +764,7 @@ function replayInspectionHTML(inspection) {
         const card = state.cards[id]
         const item = card ? displayCardDefinition(id) : undefined
         const name = item?.name || "カード"
-        const image = item?.asset ? cachedCardImageURL(item.asset) : null
-        const face = image
-            ? liverImageFaceHTML(item, `<img src="${escapeHTML(image)}" alt="${escapeHTML(name)}" draggable="false" loading="lazy" decoding="async">`, card.powerOverride)
-            : textCardFaceHTML(item || {name}, "replay-inspection-text")
+        const face = cardFaceHTML(item || {name}, {textClass: "replay-inspection-text", powerOverride: card?.powerOverride})
         return `<figure class="replay-inspection-card"><span class="replay-inspection-order">${start + index + 1}${id === topCard ? " / 先頭" : ""}</span><div class="replay-inspection-face">${face}</div><figcaption>${escapeHTML(name)}</figcaption></figure>`
     }).join("")
     const pagination = pages > 1 ? `<div class="replay-inspection-pagination"><span class="replay-inspection-range">${start + 1}〜${Math.min(start + replayInspectionPageSize, inspection.cards.length)}枚目 / 全${inspection.cards.length}枚</span><button class="small" data-action="replay-inspection-prev" ${replayInspectionUi.page === 0 ? "disabled" : ""}>前へ</button><span>${replayInspectionUi.page + 1} / ${pages}</span><button class="small" data-action="replay-inspection-next" ${replayInspectionUi.page + 1 >= pages ? "disabled" : ""}>次へ</button></div>` : ""
@@ -1318,12 +1315,14 @@ function textCardFaceHTML(item, className = "card-body", powerOverride = undefin
 }
 function liverImageFaceHTML(item, imageHtml, powerOverride = undefined) {
     const type = textCardType(item)
-    if (!["liver", "event", "stage"].includes(type) || isColorDefinition(item)) return imageHtml
-    // The original image already contains its base power. Show a badge only
-    // when the card instance has an explicit value, including zero.
-    const power = type === "liver" && typeof powerOverride === "number" && Number.isFinite(powerOverride)
-        ? `<span class="liver-image-power" title="パワー ${escapeHTML(powerOverride)}">${escapeHTML(powerOverride)}</span>` : ""
-    return `<span class="liver-image-face">${imageHtml}${liverColorBandsHTML(item)}${cardTypeSideLabelHTML(item)}${power}</span>`
+    if (isColorDefinition(item)) return imageHtml
+    const level = type !== "channel" && item.cost !== undefined && item.cost !== null
+        ? `<span class="liver-image-cost" title="レベル ${escapeHTML(item.cost)}">${escapeHTML(item.cost)}</span>` : ""
+    const powerValue = powerOverride ?? item.power
+    const power = type === "liver" && powerValue !== undefined && powerValue !== null
+        ? `<span class="liver-image-power" title="パワー ${escapeHTML(powerValue)}">${escapeHTML(powerValue)}</span>` : ""
+    const marks = liverColorBandsHTML(item) + cardTypeSideLabelHTML(item)
+    return level || power || marks ? `<span class="liver-image-face">${imageHtml}${marks}${level}${power}</span>` : imageHtml
 }
 function cardDetailFields(item = {}, definitionId = "") {
     const type = textCardType(item)
@@ -1447,6 +1446,119 @@ function pruneCardImageURLs() {
     }
 }
 
+// Resolve optional site images separately from user-uploaded, saved assets.
+const cardFileImageExtensions = ["jpg", "png", "webp", "jpeg"]
+const cardFileImages = new Map()
+const cardFileImageQueue = []
+let cardFileImageActive = 0
+const cardFileImageRefresh = new Set()
+let cardFileImageRefreshTimer = null
+
+function loadCardImageSource(source) {
+    if (!source || typeof Image !== "function") return Promise.resolve(null)
+    return new Promise(resolve => {
+        const image = new Image()
+        const finish = loaded => {
+            clearTimeout(timeout)
+            image.onload = image.onerror = null
+            resolve(loaded ? image : null)
+        }
+        const timeout = setTimeout(() => finish(false), 5000)
+        image.onload = () => finish(image.naturalWidth > 0 && image.naturalHeight > 0)
+        image.onerror = () => finish(false)
+        image.decoding = "async"
+        image.src = source
+    })
+}
+
+function refreshCardFileImages(key) {
+    cardFileImageRefresh.add(key)
+    if (cardFileImageRefreshTimer !== null) return
+    cardFileImageRefreshTimer = setTimeout(() => {
+        cardFileImageRefreshTimer = null
+        for (const id of cardFileImageRefresh) {
+            const entry = cardFileImages.get(id)
+            if (!entry || entry.status === "pending") continue
+            for (const host of document.querySelectorAll(`[data-card-file-pending="${id}"]`)) {
+                const template = host.querySelector("template")
+                if (!template) continue
+                if (entry.source) {
+                    const content = template.content.cloneNode(true)
+                    content.querySelector("img").src = entry.source
+                    host.closest(".card")?.classList.remove("text-card")
+                    host.replaceWith(content)
+                } else {
+                    template.remove()
+                    if (host.classList.contains("mini-card")) host.removeAttribute("data-card-file-pending")
+                    else host.replaceWith(...host.childNodes)
+                }
+            }
+        }
+        cardFileImageRefresh.clear()
+    }, 0)
+}
+
+function runCardFileImageQueue() {
+    while (cardFileImageActive < 4 && cardFileImageQueue.length) {
+        const entry = cardFileImageQueue.shift()
+        cardFileImageActive++
+        ;(async () => {
+            try {
+                for (const extension of cardFileImageExtensions) {
+                    const source = new URL(`figs/${encodeURIComponent(entry.key)}.${extension}`, appRootURL()).href
+                    if (await loadCardImageSource(source)) {entry.source = source; break}
+                }
+            } catch { /* Missing or unavailable site images keep the text face. */ }
+            finally {
+                entry.status = entry.source ? "ready" : "missing"
+                entry.resolve(entry.source)
+                refreshCardFileImages(entry.key)
+                cardFileImageActive--
+                runCardFileImageQueue()
+            }
+        })()
+    }
+}
+
+function cardFileImage(item) {
+    const key = item?.sourceCardKey
+    if (isColorDefinition(item) || typeof key !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(key)) return null
+    let entry = cardFileImages.get(key)
+    if (!entry) {
+        entry = {key, source: "", status: "pending"}
+        entry.promise = new Promise(resolve => {entry.resolve = resolve})
+        cardFileImages.set(key, entry)
+        cardFileImageQueue.push(entry)
+        runCardFileImageQueue()
+    }
+    return entry
+}
+
+function cardImageURL(item) {
+    const uploaded = item?.asset ? cachedCardImageURL(item.asset) : ""
+    return uploaded || cardFileImage(item)?.source || ""
+}
+
+async function resolveCardImageURL(item) {
+    const uploaded = item?.asset ? cachedCardImageURL(item.asset) : ""
+    if (uploaded) return uploaded
+    return (await cardFileImage(item)?.promise) || ""
+}
+
+function cardImageContentHTML(item, fallback, imageHTML, pendingClass = "pending-card-image", pendingFallback = fallback) {
+    const source = cardImageURL(item)
+    if (source) return imageHTML(source)
+    const entry = cardFileImage(item)
+    if (!entry || entry.status !== "pending") return fallback
+    return `<span class="${pendingClass}" data-card-file-pending="${entry.key}">${pendingFallback}<template>${imageHTML("")}</template></span>`
+}
+
+function cardFaceHTML(item, options = {}) {
+    const fallback = textCardFaceHTML(item, options.textClass || "card-body", options.powerOverride ?? undefined)
+    return cardImageContentHTML(item, fallback, source => liverImageFaceHTML(item,
+        `<img ${source ? `src="${escapeHTML(source)}"` : ""} alt="${escapeHTML(item.name)}" draggable="false" loading="${options.loading === "eager" ? "eager" : "lazy"}" decoding="async">`, options.powerOverride))
+}
+
 // CARD_IMAGE_CACHE_END
 function cardHTML(id, options = {}) {
     const card = state.cards[id]
@@ -1455,10 +1567,9 @@ function cardHTML(id, options = {}) {
     const hidden = options.forceHidden || (!options.reveal && !visible(id, place))
     const color = colorForCard(id)
     const rotated = card.rotated && !options.preview && place?.zone !== "hand"
-    const classes = ["card", color ? "color-card" : "", !color && !hidden && !item.asset ? "text-card" : "", color && !hidden ? `color-${color.toLowerCase()}` : "", hidden ? "face-down" : "", rotated ? "rotated" : "", ui.selection.has(id) && !options.preview ? "selected" : ""].filter(Boolean).join(" ")
+    const classes = ["card", color ? "color-card" : "", !color && !hidden && !cardImageURL(item) ? "text-card" : "", color && !hidden ? `color-${color.toLowerCase()}` : "", hidden ? "face-down" : "", rotated ? "rotated" : "", ui.selection.has(id) && !options.preview ? "selected" : ""].filter(Boolean).join(" ")
     const title = hidden ? color ? "裏向きのカラーカード" : "裏向きのカード" : item.name
-    let content = hidden ? `<span class="back-mark">7</span>` : item.asset ? `<img src="${cachedCardImageURL(item.asset)}" alt="${escapeHTML(title)}" draggable="false" loading="${options.preview ? "eager" : "lazy"}" decoding="async">` : textCardFaceHTML(item)
-    if (!hidden && item.asset) content = liverImageFaceHTML(item, content, card.powerOverride)
+    let content = hidden ? `<span class="back-mark">7</span>` : color ? "" : cardFaceHTML(item, {powerOverride: card.powerOverride, loading: options.preview ? "eager" : "lazy"})
     if (color && !hidden) content = `<span class="color-face"><small>COLOR</small><strong>${color}</strong><span>${escapeHTML(colorNames[color])}</span></span>`
     if (!options.preview) {
         if (card.counter) content += `<span class="counter-badge">${card.counter}</span>`
@@ -1776,7 +1887,7 @@ function handleInspectorAction(action, button) {
 
 // ZONE_INSPECTOR_UI_END
 function miniature(item) {
-    return item.asset ? `<img class="mini-card" src="${cachedCardImageURL(item.asset)}" alt="" draggable="false" loading="lazy" decoding="async">` : `<span class="mini-card">◇</span>`
+    return cardImageContentHTML(item, `<span class="mini-card">◇</span>`, source => `<img class="mini-card" ${source ? `src="${escapeHTML(source)}"` : ""} alt="" draggable="false" loading="lazy" decoding="async">`, "mini-card", "◇")
 }
 // CATALOG_UI_START
 const catalogUi = {query: "", cardType: "", page: 0, editing: ""}
@@ -2174,6 +2285,7 @@ function deckExportColorBands(context, item, x, y, height) {
     const colors = liverCardColors(item)
     if (!colors.length) return
     const segment = (height - 61) / 7
+    deckExportBox(context, x + 6, y + 37, 12, Math.max(0, height - 61) + 2, 2, "#e3e7eb")
     for (const color of colors) {
         const bandY = y + 38 + nijiColors.indexOf(color) * segment
         context.fillStyle = deckExportColors[color]
@@ -2199,6 +2311,26 @@ function deckExportTypeSideLabel(context, item, x, y, height) {
     context.fillText(label, 0, 0, labelHeight)
     context.restore()
 }
+function deckExportCardStats(context, item, x, y, width, height) {
+    context.save()
+    context.textAlign = "center"
+    context.textBaseline = "alphabetic"
+    if (textCardType(item) !== "channel" && item.cost !== undefined && item.cost !== null) {
+        deckExportBox(context, x + 8, y + 8, 36, 30, 6, "#e1eef8", "#b7ccdc")
+        context.fillStyle = "#325b79"
+        context.font = "800 19px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        context.fillText(String(item.cost), x + 26, y + 30, 31)
+    }
+    if (textCardType(item) === "liver" && item.power !== undefined && item.power !== null) {
+        context.font = "800 17px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        const label = String(item.power)
+        const badgeWidth = Math.max(39, Math.ceil(context.measureText(label).width) + 16)
+        deckExportBox(context, x + width - badgeWidth - 7, y + height - 30, badgeWidth, 24, 5, "#fff4db", "#dfcda7")
+        context.fillStyle = "#856a36"
+        context.fillText(label, x + width - badgeWidth / 2 - 7, y + height - 12)
+    }
+    context.restore()
+}
 function deckExportTextCard(context, item, x, y, width, height) {
     const channel = textCardType(item) === "channel"
     const hasSideMark = liverCardColors(item).length > 0 || Boolean(cardTypeSideLabel(item))
@@ -2209,13 +2341,6 @@ function deckExportTextCard(context, item, x, y, width, height) {
     deckExportBox(context, x, y, width, height, 8, gradient, "#bacbd9")
     deckExportColorBands(context, item, x, y, height)
     deckExportTypeSideLabel(context, item, x, y, height)
-    if (!channel && item.cost !== undefined && item.cost !== null) {
-        deckExportBox(context, x + 8, y + 8, 36, 30, 6, "#e1eef8", "#b7ccdc")
-        context.fillStyle = "#325b79"
-        context.font = "800 19px system-ui, 'Yu Gothic', Meiryo, sans-serif"
-        context.textAlign = "center"
-        context.fillText(String(item.cost), x + 26, y + 30, 31)
-    }
     if (item.className) {
         deckExportBox(context, x + width - 42, y + 8, 34, 30, 6, "#f1ebf9", "#d3c6e0")
         context.fillStyle = "#695982"
@@ -2233,30 +2358,16 @@ function deckExportTextCard(context, item, x, y, width, height) {
     const lineHeight = channel ? 36 : 25
     const first = y + height * .59 - (lines.length - 1) * lineHeight / 2
     for (const [index, line] of lines.entries()) context.fillText(line, x + width / 2 + (hasSideMark ? 6 : 0), first + index * lineHeight)
-    if (textCardType(item) === "liver" && item.power !== undefined && item.power !== null) {
-        context.font = "800 17px system-ui, 'Yu Gothic', Meiryo, sans-serif"
-        const label = String(item.power)
-        const badgeWidth = Math.max(39, Math.ceil(context.measureText(label).width) + 16)
-        deckExportBox(context, x + width - badgeWidth - 7, y + height - 30, badgeWidth, 24, 5, "#fff4db", "#dfcda7")
-        context.fillStyle = "#856a36"
-        context.fillText(label, x + width - badgeWidth / 2 - 7, y + height - 12)
-    }
+    deckExportCardStats(context, item, x, y, width, height)
     context.restore()
 }
 
-function deckExportLoadImage(assetId) {
-    return new Promise(resolve => {
-        const source = cachedCardImageURL(assetId)
-        if (!source) return resolve(null)
-        const image = new Image()
-        image.onload = () => resolve(image)
-        image.onerror = () => resolve(null)
-        image.src = source
-    })
+async function deckExportLoadImage(item) {
+    return loadCardImageSource(await resolveCardImageURL(item))
 }
 
 async function deckExportCard(context, item, x, y, width, height, count) {
-    const image = item.asset ? await deckExportLoadImage(item.asset) : null
+    const image = await deckExportLoadImage(item)
     if (image?.naturalWidth && image?.naturalHeight) {
         deckExportBox(context, x, y, width, height, 8, "#fff", "#bacbd9")
         const scale = Math.min((width - 4) / image.naturalWidth, (height - 4) / image.naturalHeight)
@@ -2264,6 +2375,7 @@ async function deckExportCard(context, item, x, y, width, height, count) {
         context.drawImage(image, x + (width - imageWidth) / 2, y + (height - imageHeight) / 2, imageWidth, imageHeight)
         deckExportColorBands(context, item, x, y, height)
         deckExportTypeSideLabel(context, item, x, y, height)
+        deckExportCardStats(context, item, x, y, width, height)
     } else deckExportTextCard(context, item, x, y, width, height)
     deckExportBadge(context, x + (liverCardColors(item).length || cardTypeSideLabel(item) ? 24 : 8), y + height - 44, count)
 }

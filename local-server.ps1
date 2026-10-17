@@ -63,9 +63,22 @@ function Send-HttpError {
     Send-HttpResponse $Stream $Status $Reason 'text/plain; charset=utf-8' $utf8.GetBytes("$Status $Reason`n") $HeadOnly $ExtraHeaders
 }
 
+function Get-PublicContentType {
+    param([string]$RequestPath)
+    if ([string]::IsNullOrEmpty($RequestPath)) { return $null }
+    if ($publicFiles.ContainsKey($RequestPath)) { return $publicFiles[$RequestPath] }
+    $imagePath = [regex]::Match($RequestPath, '\A/figs/[A-Za-z0-9_-]{1,100}\.(png|jpg|jpeg|webp)\z', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $imagePath.Success) { return $null }
+    switch ($imagePath.Groups[1].Value.ToLowerInvariant()) {
+        'png' { return 'image/png' }
+        'jpg' { return 'image/jpeg' }
+        'jpeg' { return 'image/jpeg' }
+        'webp' { return 'image/webp' }
+    }
+}
 function Get-PublicFilePath {
     param([string]$RequestPath)
-    if (-not $publicFiles.ContainsKey($RequestPath)) { return $null }
+    if (-not (Get-PublicContentType $RequestPath)) { return $null }
     $parts = $RequestPath.TrimStart('/').Split('/')
     $candidate = $projectRoot
     foreach ($part in $parts) {
@@ -128,7 +141,7 @@ function Serve-Client {
         $fileInfo = Get-Item -LiteralPath $filePath
         if ($fileInfo.Length -gt 16777216) { Send-HttpError $stream 413 'Content Too Large' $headOnly; return }
         $body = [IO.File]::ReadAllBytes($filePath)
-        Send-HttpResponse $stream 200 'OK' $publicFiles[$requestPath] $body $headOnly
+        Send-HttpResponse $stream 200 'OK' (Get-PublicContentType $requestPath) $body $headOnly
     } finally { $headerBuffer.Dispose() }
 }
 
