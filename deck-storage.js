@@ -491,14 +491,14 @@ async function initializeBundledCardStorage() {
         validationState.catalog[`bundled_validation_${index}`] = item
     }
     checkState(validationState, {}, true)
-    const transaction = database.transaction(["catalog", "assets", "decks"], "readwrite"), done = storageTransactionDone(transaction)
-    const latest = {keys: null, values: null, assetKeys: null, assetValues: null, decks: null}
+    const transaction = database.transaction(["catalog", "assets", "decks", "boards"], "readwrite"), done = storageTransactionDone(transaction)
+    const latest = {keys: null, values: null, assetKeys: null, assetValues: null, decks: null, board: null}
     let operationError = null, result = null
     const process = () => {
         if (Object.values(latest).some(value => value === null)) return
         try {
             const catalog = Object.fromEntries(latest.keys.map((key, index) => [key, latest.values[index]]))
-            const updated = backfillBundledCardTags(catalog, definitions)
+            const updated = syncBundledCards(catalog, definitions)
             const registered = new Set(Object.values(catalog).map(item => item.sourceCardKey).filter(Boolean))
             const missing = definitions.filter(item => !registered.has(item.sourceCardKey))
             const limitReached = Object.values(catalog).filter(item => !isColorDefinition(item)).length + missing.length > 500
@@ -515,13 +515,18 @@ async function initializeBundledCardStorage() {
             const images = Object.fromEntries(latest.assetKeys.map((key, index) => [key, latest.assetValues[index]]))
             checkState(candidate, images, true)
             validateSavedDecks(latest.decks, catalog)
+            if (latest.board?.state) {
+                const board = upgradeLayout(copy(latest.board.state))
+                Object.assign(board.catalog, copy(catalog))
+                checkState(board, {...latest.board.assets, ...images}, true)
+            }
             const catalogStore = transaction.objectStore("catalog")
             for (const {id, item} of [...updated, ...additions]) catalogStore.put(item, id)
             result = {added: additions.length, updated: updated.length, limitReached, ...(limitReached ? {missing: missing.length} : {})}
         } catch (error) {operationError = error; transaction.abort()}
     }
     const read = (key, request) => {
-        request.onsuccess = () => {latest[key] = request.result; process()}
+        request.onsuccess = () => {latest[key] = request.result ?? undefined; process()}
         request.onerror = () => {operationError = request.error; transaction.abort()}
     }
     read("keys", transaction.objectStore("catalog").getAllKeys())
@@ -529,6 +534,7 @@ async function initializeBundledCardStorage() {
     read("assetKeys", transaction.objectStore("assets").getAllKeys())
     read("assetValues", transaction.objectStore("assets").getAll())
     read("decks", transaction.objectStore("decks").getAll())
+    read("board", transaction.objectStore("boards").get("current"))
     try {await done} catch (error) {throw operationError || error}
     return result
 }
@@ -546,7 +552,7 @@ async function initializeBundledCardsAfterTransfer() {
             return result
         } catch (error) {
             console.error("Bundled card registration failed", error)
-            notify(`標準カードを登録できませんでした。${error.message || String(error)}`, true)
+            notify(`標準カードを反映できませんでした。${error.message || String(error)}`, true)
             return {added: 0, updated: 0, failed: true}
         }
     })
@@ -581,7 +587,7 @@ function initializeStorage() {
                         if (bundled.limitReached) notify("カード登録が500種類を超えるため、標準カードを追加できませんでした。登録を整理してから開き直してください。", true)
                     } catch (error) {
                         console.error("Bundled card registration failed", error)
-                        notify(`標準カードを登録できませんでした。${error.message || String(error)}`, true)
+                        notify(`標準カードを反映できませんでした。${error.message || String(error)}`, true)
                     }
                 }
                 const transaction = database.transaction("boards", "readonly"), done = storageTransactionDone(transaction)
