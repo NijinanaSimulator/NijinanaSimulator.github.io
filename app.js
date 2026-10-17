@@ -25,364 +25,105 @@ function cardTagsHTML(item, className = "card-detail-tags") {
     const tags = cardTags(item)
     return tags.length ? `<div class="${escapeHTML(className)}">${tags.map(tag => `<span>#${escapeHTML(tag)}</span>`).join("")}</div>` : ""
 }
-// CARD_LIBRARY_START
-// Offline XLSX import. Card effects remain plain text and never run as rules.
-const XLSX_CARD_LIMITS = {fileBytes: 10 * 1024 * 1024, entryBytes: 20 * 1024 * 1024, totalBytes: 50 * 1024 * 1024, entries: 2000, rows: 20000, cells: 250000, cards: 1000}
-const XLSX_CARD_HEADERS = ["ID", "カード名", "種類", "クラス", "レベル", "Power"]
-const XLSX_CARD_HEADER_ALIASES = {ID: ["ID", "仮ID"], レベル: ["レベル", "Lv", "Level", "コスト", "Cost"]}
-const XLSX_CARD_TYPES = {LIVER: "liver", ライバー: "liver", ライバーカード: "liver", EVENT: "event", イベント: "event", イベントカード: "event", STAGE: "stage", ステージ: "stage", ステージカード: "stage", CHANNEL: "channel", チャンネル: "channel", チャンネルカード: "channel"}
-const XLSX_CARD_CLASSES = {SOL: "太陽", LUNA: "月", COMET: "彗星", STELLA: "星", 太陽: "太陽", 月: "月", 彗星: "彗星", 星: "星"}
-const XLSX_CARD_COLOR_HEADERS = ["colors", "color", "色", "カラー", "ライバーの色"]
-const XLSX_CARD_TAG_HEADERS = ["#タグ", "タグ", "tags", "tag", "カードのタグ", "ライバーのタグ", "イベントのタグ", "ステージのタグ", "チャンネルのタグ"]
-const XLSX_CARD_COLOR_ORDER = ["R", "O", "Y", "G", "B", "I", "V"]
-const XLSX_CARD_COLORS = {R: "R", O: "O", Y: "Y", G: "G", B: "B", I: "I", V: "V", 赤: "R", 橙: "O", 黄: "Y", 緑: "G", 青: "B", 藍: "I", 紫: "V"}
-
-function xlsxCardCellValue(cell) {
-    return cell && typeof cell === "object" && cell.formula === true ? cell.value : cell
+const CARD_RESTRICTION_LIMITS = {text: 2000, count: 50, value: 200}
+function normalizeCardRestriction(raw) {
+    if (typeof raw !== "string" || raw.length > CARD_RESTRICTION_LIMITS.text) throw new Error("限定はカンマ区切りで2000文字以内で入力してください。")
+    const values = [...new Set(raw.split(/[,，、]/u).map(value => value.replace(/[\s#＃]+/gu, "")).filter(Boolean))]
+    if (values.length > CARD_RESTRICTION_LIMITS.count || values.some(value => value.length > CARD_RESTRICTION_LIMITS.value)) throw new Error("限定は50個まで、各200文字以内で入力してください。")
+    return values.join(",")
 }
-
-function xlsxCardHeaderColumns(values) {
-    const labels = values.map(value => String(xlsxCardCellValue(value) ?? "").normalize("NFKC").trim().toLowerCase())
-    const columns = XLSX_CARD_HEADERS.map(label => {
-        const aliases = XLSX_CARD_HEADER_ALIASES[label] || [label]
-        return aliases.map(alias => labels.indexOf(alias.toLowerCase())).find(index => index >= 0) ?? -1
-    })
-    return columns.every(index => index >= 0) ? columns : null
+function validCardRestriction(raw) {
+    try {return typeof raw === "string" && raw === normalizeCardRestriction(raw)} catch {return false}
 }
-
-function normalizeXlsxCardColors(cell, fail) {
-    const value = xlsxCardCellValue(cell)
-    if (cell?.formula === true && (value === null || value === undefined)) fail("色の数式の計算結果がありません。Excel で計算して保存してください。")
-    if (value === null || value === undefined || (typeof value === "string" && !value.trim())) return []
-    if (typeof value !== "string" || value.length > 200) fail("色は R・O・Y・G・B・I・V または赤・橙・黄・緑・青・藍・紫で入力してください。")
-    const tokens = value.normalize("NFKC").toUpperCase().replace(/[\s,、・/|]+/g, "")
-    const colors = new Set()
-    for (const token of tokens) {
-        if (!Object.hasOwn(XLSX_CARD_COLORS, token)) fail(`色欄の「${token}」に対応していません。7色の記号または色名を使ってください。`)
-        colors.add(XLSX_CARD_COLORS[token])
-    }
-    return XLSX_CARD_COLOR_ORDER.filter(color => colors.has(color))
+function cardRestrictionHTML(item, className = "card-detail-restriction") {
+    if (!item?.restriction) return ""
+    const labels = item.restriction.split(",").map(value => value === "同じ" ? "同じ#" : value)
+    return `<p class="${escapeHTML(className)}">限定：${labels.map(escapeHTML).join(" / ")}</p>`
 }
-
-// rows: [{rowNumber: 1, values: ["仮ID", "カード名", ...]}, ...].
-// Formula cells may use {formula: true, value: cachedValueOrNull}; no formula runs.
-function normalizeXlsxCardTags(cell, fail) {
-    const value = xlsxCardCellValue(cell)
-    if (cell?.formula === true && (value === null || value === undefined)) fail("タグの数式の計算結果がありません。Excelで計算して保存してください。")
-    if (value === null || value === undefined || value === "") return []
-    if (typeof value !== "string") fail("タグは文字列で入力してください。")
-    try {return normalizeCardTags(value.replace(/[#＃]+/gu, ","))} catch (error) {fail(error.message)}
+function deckCardAllowedByChannel(item, channel) {
+    if (!item || !channel || textCardType(channel) !== "channel" || !item.className || item.className !== channel.className) return false
+    if (!item.restriction) return true
+    const channelTags = new Set(cardTags(channel)), channelName = channel.name.replace(/\s+/gu, "")
+    return item.restriction.split(",").some(value => value === "同じ"
+        ? cardTags(item).some(tag => channelTags.has(tag))
+        : channelTags.has(value) || channelName === value)
 }
-function normalizeCardLibraryRows(rows, sourceName, sheetName) {
-    if (!Array.isArray(rows) || rows.length > XLSX_CARD_LIMITS.rows) throw new Error("Excel の行数が読み込み上限を超えています。")
-    const headerIndex = rows.findIndex(row => row.rowNumber <= 30 && Array.isArray(row.values) && xlsxCardHeaderColumns(row.values))
-    if (headerIndex < 0) throw new Error(`「${sheetName}」に必要な列（ID・カード名・種類・クラス・レベル・Power）が見つかりません。`)
-    const columns = xlsxCardHeaderColumns(rows[headerIndex].values)
-    const effectColumn = rows[headerIndex].values.findIndex(value => ["効果", "効果テキスト", "効果本文"].includes(String(xlsxCardCellValue(value) ?? "").trim()))
-    const colorColumn = rows[headerIndex].values.findIndex(value => XLSX_CARD_COLOR_HEADERS.includes(String(xlsxCardCellValue(value) ?? "").normalize("NFKC").trim().toLowerCase()))
-    const tagColumn = rows[headerIndex].values.findIndex(value => XLSX_CARD_TAG_HEADERS.includes(String(xlsxCardCellValue(value) ?? "").normalize("NFKC").trim().toLowerCase()))
-    const cards = [], keys = new Set()
-    for (const row of rows.slice(headerIndex + 1)) {
-        const rowNumber = row.rowNumber
-        const fail = message => { throw new Error(`「${sheetName}」${rowNumber} 行目：${message}`) }
-        if (!Array.isArray(row.values) || !Number.isInteger(rowNumber) || rowNumber < 1) fail("行の形式が正しくありません。")
-        const cells = columns.map(index => row.values[index])
-        const values = cells.map(xlsxCardCellValue)
-        const empty = value => value === null || value === undefined || (typeof value === "string" && !value.trim())
-        if (values.every(empty)) continue
-        // The supplied workbook has a formula-only FILTER placeholder below
-        // its card rows. A row without a card name and type is not card data.
-        if (empty(values[1]) && empty(values[2]) && cells[0]?.formula === true && values.slice(1).every(empty)) continue
-        cells.forEach((cell, index) => {
-            if (cell?.formula === true && empty(cell.value)) fail(`${XLSX_CARD_HEADERS[index]} の数式の計算結果がありません。Excel で計算して保存してください。`)
-        })
-        const readText = (value, label, maximum, required = false) => {
-            if (empty(value)) {
-                if (required) fail(`${label}が空欄です。`)
-                return ""
-            }
-            if (typeof value !== "string" || value.length > maximum) fail(`${label}の文字列が正しくありません。`)
-            return value.trim()
-        }
-        const key = readText(values[0], "ID", 100, true)
-        if (!/^[A-Za-z0-9_-]+$/.test(key)) fail("IDには半角英数字・ハイフン・アンダーバーを使ってください。")
-        if (["__proto__", "prototype", "constructor"].includes(key)) fail("このIDは使用できません。別のIDに変更してください。")
-        if (keys.has(key)) fail(`ID「${key}」が重複しています。`)
-        const name = readText(values[1], "カード名", 200, true)
-        const rawType = readText(values[2], "種類", 40, true).toUpperCase()
-        const rawClass = readText(values[3], "クラス", 40).toUpperCase()
-        if (!Object.hasOwn(XLSX_CARD_TYPES, rawType)) fail(`種類「${rawType}」に対応していません。`)
-        if (rawClass && !Object.hasOwn(XLSX_CARD_CLASSES, rawClass)) fail(`クラス「${rawClass}」に対応していません。`)
-        const number = (value, label, maximum) => {
-            if (empty(value)) return null
-            if (typeof value === "string" && /^\d+(?:\.0+)?$/.test(value.trim())) value = Number(value.trim())
-            if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > maximum) fail(`${label}は 0 ～ ${maximum} の整数にしてください。`)
-            return value
-        }
-        const cardType = XLSX_CARD_TYPES[rawType]
-        const cost = number(values[4], "レベル", 999)
-        const power = number(values[5], "Power", 999999)
-        const effectCell = effectColumn < 0 ? null : row.values[effectColumn]
-        const effectValue = xlsxCardCellValue(effectCell)
-        if (effectCell?.formula === true && (effectValue === null || effectValue === undefined)) fail("効果の数式の計算結果がありません。Excel で計算して保存してください。")
-        const text = effectValue ?? ""
-        if (typeof text !== "string" || text.length > 10000) fail("効果は 10000 文字以内の文章にしてください。")
-        const colors = cardType === "liver" && colorColumn >= 0 ? normalizeXlsxCardColors(row.values[colorColumn], fail) : []
-        const tags = cardTypeSupportsTags(cardType) && tagColumn >= 0 ? normalizeXlsxCardTags(row.values[tagColumn], fail) : []
-        keys.add(key)
-        cards.push({key, name, text, cardType, className: rawClass ? XLSX_CARD_CLASSES[rawClass] : "", colors, tags, cost: cardType === "channel" ? null : cost, power: cardType === "liver" ? power : null, sourceRow: rowNumber})
-        if (cards.length > XLSX_CARD_LIMITS.cards) fail(`カードは ${XLSX_CARD_LIMITS.cards} 件まで読み込めます。`)
-    }
-    if (!cards.length) throw new Error(`「${sheetName}」に読み込めるカードがありません。`)
-    return {source: String(sourceName || "カードリスト.xlsx"), sourceSheet: sheetName, cards}
-}
-
-function xlsxCardCrc32(bytes) {
-    let crc = 0xffffffff
-    for (const byte of bytes) {
-        crc ^= byte
-        for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0)
-    }
-    return (crc ^ 0xffffffff) >>> 0
-}
-
-async function xlsxCardZip(buffer) {
-    const bytes = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : ArrayBuffer.isView(buffer) ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength) : null
-    if (!bytes || bytes.byteLength < 22) throw new Error("Excel ファイルの形式が正しくないか、途中で切れています。")
-    if (bytes.byteLength > XLSX_CARD_LIMITS.fileBytes) throw new Error("Excel ファイルは 10 MB 以下にしてください。")
-    if ([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].every((byte, index) => bytes[index] === byte)) throw new Error("パスワード付き Excel や .xls 形式には対応していません。パスワードなしの .xlsx ファイルを選んでください。")
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    const range = (offset, length) => {
-        if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0 || offset + length > bytes.length) throw new Error("Excel ファイルが途中で切れています。")
-    }
-    let end = -1
-    for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65557); offset--) {
-        if (view.getUint32(offset, true) === 0x06054b50 && offset + 22 + view.getUint16(offset + 20, true) === bytes.length) { end = offset; break }
-    }
-    if (end < 0) throw new Error("Excel ファイルの ZIP 情報が見つかりません。.xlsx ファイルを選んでください。")
-    const count = view.getUint16(end + 10, true), directorySize = view.getUint32(end + 12, true), directoryOffset = view.getUint32(end + 16, true)
-    if (count === 0xffff || directorySize === 0xffffffff || directoryOffset === 0xffffffff) throw new Error("ZIP64 形式の Excel ファイルには対応していません。")
-    if (view.getUint16(end + 4, true) || view.getUint16(end + 6, true) || view.getUint16(end + 8, true) !== count) throw new Error("分割 ZIP 形式には対応していません。")
-    if (count > XLSX_CARD_LIMITS.entries) throw new Error("Excel ファイル内の項目数が読み込み上限を超えています。")
-    range(directoryOffset, directorySize)
-    if (directoryOffset + directorySize > end) throw new Error("Excel ファイルの ZIP 情報が壊れています。")
-    const entries = new Map(), decoder = new TextDecoder("utf-8", {fatal: true})
-    let offset = directoryOffset, totalSize = 0, actualTotal = 0
-    for (let index = 0; index < count; index++) {
-        range(offset, 46)
-        if (view.getUint32(offset, true) !== 0x02014b50) throw new Error("Excel ファイルの ZIP 情報が壊れています。")
-        const flags = view.getUint16(offset + 8, true), method = view.getUint16(offset + 10, true), crc = view.getUint32(offset + 16, true)
-        const compressedSize = view.getUint32(offset + 20, true), size = view.getUint32(offset + 24, true), nameLength = view.getUint16(offset + 28, true), extraLength = view.getUint16(offset + 30, true), commentLength = view.getUint16(offset + 32, true), disk = view.getUint16(offset + 34, true), localOffset = view.getUint32(offset + 42, true)
-        range(offset + 46, nameLength + extraLength + commentLength)
-        if (flags & 0x41) throw new Error("パスワード付き Excel ファイルには対応していません。")
-        if (![0, 8].includes(method)) throw new Error("この Excel ファイルの圧縮方式には対応していません。")
-        if (size === 0xffffffff || compressedSize === 0xffffffff || localOffset === 0xffffffff || disk === 0xffff) throw new Error("ZIP64 形式の Excel ファイルには対応していません。")
-        if (disk) throw new Error("分割 ZIP 形式には対応していません。")
-        totalSize += size
-        if (size > XLSX_CARD_LIMITS.entryBytes || totalSize > XLSX_CARD_LIMITS.totalBytes) throw new Error("Excel ファイルの展開サイズが読み込み上限を超えています。")
-        let name
-        try { name = decoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength)) } catch { throw new Error("Excel ファイル内の名前を読み取れません。") }
-        if (!name || name.includes("\\") || name.includes("\0") || name.startsWith("/") || name.split("/").some(part => part === ".." || part === ".") || /^[A-Za-z]:/.test(name) || entries.has(name)) throw new Error("Excel ファイル内のパスが正しくありません。")
-        range(localOffset, 30)
-        if (localOffset >= directoryOffset || view.getUint32(localOffset, true) !== 0x04034b50 || view.getUint16(localOffset + 6, true) !== flags || view.getUint16(localOffset + 8, true) !== method) throw new Error("Excel ファイルの ZIP 情報が一致しません。")
-        const localNameLength = view.getUint16(localOffset + 26, true), localExtraLength = view.getUint16(localOffset + 28, true), start = localOffset + 30 + localNameLength + localExtraLength
-        range(localOffset + 30, localNameLength + localExtraLength)
-        if (localNameLength !== nameLength || bytes.subarray(localOffset + 30, localOffset + 30 + localNameLength).some((value, n) => value !== bytes[offset + 46 + n])) throw new Error("Excel ファイル内の名前が一致しません。")
-        range(start, compressedSize)
-        if (start + compressedSize > directoryOffset) throw new Error("Excel ファイルの圧縮データが壊れています。")
-        entries.set(name, {method, crc, compressedSize, size, start})
-        offset += 46 + nameLength + extraLength + commentLength
-    }
-    if (offset !== directoryOffset + directorySize) throw new Error("Excel ファイルの ZIP 情報が壊れています。")
-    const cache = new Map()
-    return {
-        has: name => entries.has(name),
-        async read(name) {
-            if (cache.has(name)) return cache.get(name)
-            const entry = entries.get(name)
-            if (!entry) throw new Error(`Excel ファイル内の「${name}」が見つかりません。`)
-            let result
-            if (entry.method === 0) result = bytes.subarray(entry.start, entry.start + entry.compressedSize)
-            else {
-                if (typeof DecompressionStream !== "function") throw new Error("このブラウザは Excel の展開に対応していません。最新版のブラウザで開いてください。")
-                let reader
-                try {
-                    reader = new Blob([bytes.subarray(entry.start, entry.start + entry.compressedSize)]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader()
-                    const chunks = []
-                    let length = 0
-                    while (true) {
-                        const chunk = await reader.read()
-                        if (chunk.done) break
-                        length += chunk.value.length
-                        if (length > entry.size || length > XLSX_CARD_LIMITS.entryBytes || actualTotal + length > XLSX_CARD_LIMITS.totalBytes) {
-                            await reader.cancel()
-                            throw new Error("Excel ファイルの展開サイズが読み込み上限を超えています。")
-                        }
-                        chunks.push(chunk.value)
-                    }
-                    result = new Uint8Array(length)
-                    let position = 0
-                    for (const chunk of chunks) { result.set(chunk, position); position += chunk.length }
-                } catch (error) {
-                    if (error instanceof Error && error.message.startsWith("Excel")) throw error
-                    throw new Error("Excel ファイルの圧縮データを展開できません。ファイルが壊れていないか確認してください。")
-                } finally { reader?.releaseLock() }
-            }
-            if (result.length !== entry.size || xlsxCardCrc32(result) !== entry.crc) throw new Error("Excel ファイルの内容が壊れているか、途中で切れています。")
-            actualTotal += result.length
-            let text
-            try { text = decoder.decode(result) } catch { throw new Error("Excel ファイル内の文字を読み取れません。") }
-            cache.set(name, text)
-            return text
-        }
-    }
-}
-
-function xlsxCardXml(text) {
-    if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error("外部定義を含む XML には対応していません。")
-    const xml = new DOMParser().parseFromString(text, "application/xml")
-    if (xml.getElementsByTagNameNS("*", "parsererror").length || xml.documentElement?.localName === "parsererror") throw new Error("Excel ファイル内の XML が壊れています。")
-    return xml
-}
-
-function xlsxCardResolvePath(baseFile, target) {
-    if (!target || /[\\\0?#]/.test(target) || /^[a-z][a-z\d+.-]*:/i.test(target) || target.startsWith("//")) throw new Error("Excel の外部参照には対応していません。")
-    const parts = target.startsWith("/") ? [] : baseFile.split("/").slice(0, -1)
-    for (const part of target.split("/")) {
-        if (!part || part === ".") continue
-        if (part === "..") {
-            if (!parts.length) throw new Error("Excel ファイル内の参照先が正しくありません。")
-            parts.pop()
-        } else parts.push(part)
-    }
-    return parts.join("/")
-}
-
-function xlsxCardRelationships(xml, baseFile) {
-    const relationships = new Map()
-    for (const relation of xml.getElementsByTagNameNS("*", "Relationship")) {
-        if ((relation.getAttribute("TargetMode") || "").toLowerCase() === "external") throw new Error("外部ファイルを参照する Excel には対応していません。")
-        const id = relation.getAttribute("Id"), type = relation.getAttribute("Type") || "", target = xlsxCardResolvePath(baseFile, relation.getAttribute("Target"))
-        if (!id || relationships.has(id)) throw new Error("Excel ファイル内の参照情報が正しくありません。")
-        relationships.set(id, {type, target})
-    }
-    return relationships
-}
-
-function xlsxCardString(node) {
-    if (!node) return ""
-    let text = ""
-    for (const child of node.children) {
-        if (child.localName === "t") text += child.textContent
-        else if (child.localName === "r") for (const run of child.children) if (run.localName === "t") text += run.textContent
-    }
-    return text
-}
-
-function xlsxCardSheetRows(xml, strings) {
-    const rows = []
-    let cellsSeen = 0
-    for (const node of xml.getElementsByTagNameNS("*", "row")) {
-        const rowNumber = Number(node.getAttribute("r"))
-        if (!Number.isInteger(rowNumber) || rowNumber < 1 || rowNumber > 1048576) throw new Error("Excel の行番号が正しくありません。")
-        const values = []
-        for (const cell of node.children) {
-            if (cell.localName !== "c") continue
-            if (++cellsSeen > XLSX_CARD_LIMITS.cells) throw new Error("Excel のセル数が読み込み上限を超えています。")
-            const reference = /^([A-Z]{1,3})([1-9]\d*)$/.exec(cell.getAttribute("r") || "")
-            if (!reference || Number(reference[2]) !== rowNumber) throw new Error("Excel のセル参照が正しくありません。")
-            let column = 0
-            for (const character of reference[1]) column = column * 26 + character.charCodeAt(0) - 64
-            if (column > 16384 || Object.hasOwn(values, column - 1)) throw new Error("Excel のセル参照が正しくありません。")
-            const children = [...cell.children], raw = children.find(child => child.localName === "v")?.textContent ?? null, type = cell.getAttribute("t")
-            let value = null
-            if (type === "inlineStr") value = xlsxCardString(children.find(child => child.localName === "is"))
-            else if (type === "s" && raw !== null) {
-                const index = Number(raw)
-                if (!Number.isInteger(index) || index < 0 || index >= strings.length) throw new Error("Excel の文字列参照が正しくありません。")
-                value = strings[index]
-            } else if (raw !== null) {
-                if (!type || type === "n") value = raw.trim() ? Number(raw) : null
-                else if (type === "b") value = raw === "1"
-                else if (type === "e") value = {error: raw}
-                else value = raw
-            }
-            values[column - 1] = children.some(child => child.localName === "f") ? {formula: true, value} : value
-        }
-        rows.push({rowNumber, values})
-        if (rows.length > XLSX_CARD_LIMITS.rows) throw new Error("Excel の行数が読み込み上限を超えています。")
-    }
-    return rows
-}
-
-async function parseCardLibraryXlsx(buffer, sourceName) {
-    const zip = await xlsxCardZip(buffer)
-    const packageRelations = xlsxCardRelationships(xlsxCardXml(await zip.read("_rels/.rels")), "")
-    const officeDocuments = [...packageRelations.values()].filter(relation => relation.type.endsWith("/officeDocument"))
-    if (officeDocuments.length !== 1) throw new Error("Excel のブック情報が見つかりません。.xlsx ファイルを選んでください。")
-    const workbookPath = officeDocuments[0].target, slash = workbookPath.lastIndexOf("/"), workbookRelationsPath = `${workbookPath.slice(0, slash + 1)}_rels/${workbookPath.slice(slash + 1)}.rels`
-    const workbook = xlsxCardXml(await zip.read(workbookPath))
-    const relations = xlsxCardRelationships(xlsxCardXml(await zip.read(workbookRelationsPath)), workbookPath)
-    const sharedStringsRelation = [...relations.values()].find(relation => relation.type.endsWith("/sharedStrings"))
-    const strings = sharedStringsRelation ? [...xlsxCardXml(await zip.read(sharedStringsRelation.target)).getElementsByTagNameNS("*", "si")].map(xlsxCardString) : []
-    const sheets = [...workbook.getElementsByTagNameNS("*", "sheet")].map(sheet => {
-        const name = sheet.getAttribute("name"), id = sheet.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || sheet.getAttributeNS("http://purl.oclc.org/ooxml/officeDocument/relationships", "id") || sheet.getAttribute("r:id")
-        return {name, relation: relations.get(id)}
-    }).filter(sheet => sheet.relation?.type.endsWith("/worksheet"))
-    if (!sheets.length) throw new Error("Excel に読み込めるシートがありません。")
-    const canonical = sheets.find(sheet => sheet.name === "全カード")
-    if (canonical) return normalizeCardLibraryRows(xlsxCardSheetRows(xlsxCardXml(await zip.read(canonical.relation.target)), strings), sourceName, canonical.name)
-    for (const sheet of sheets) {
-        const rows = xlsxCardSheetRows(xlsxCardXml(await zip.read(sheet.relation.target)), strings)
-        if (rows.some(row => row.rowNumber <= 30 && xlsxCardHeaderColumns(row.values))) return normalizeCardLibraryRows(rows, sourceName, sheet.name)
-    }
-    throw new Error("カード一覧の列（ID・カード名・種類・クラス・レベル・Power）が見つかりません。")
-}
-
-let cardLibrary = {source: "", sourceSheet: "", cards: []}
-const libraryUi = {query: "", cardType: "", className: "", page: 0, selected: new Set(), effectKey: ""}
-const libraryPageSize = 30
-let libraryByKey = new Map()
-let libraryImporting = false
-function normalizedCardLibrary(library) {
-    if (!library || typeof library.source !== "string" || !library.source || library.source.length > 200 || typeof library.sourceSheet !== "string" || library.sourceSheet.length > 100 || !Array.isArray(library.cards) || !library.cards.length || library.cards.length > 1000) throw new Error("カードリストの形式を確認してください。")
-    const seen = new Set()
-    const cards = library.cards.map(card => {
-        if (!card || typeof card.key !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(card.key) || ["__proto__", "constructor", "prototype"].includes(card.key) || seen.has(card.key)) throw new Error("カードのIDが不正か重複しています。")
-        seen.add(card.key)
-        if (typeof card.name !== "string" || !card.name.trim() || card.name.length > 200 || !["liver", "event", "stage", "channel"].includes(card.cardType) || !["", ...textCardClasses].includes(card.className)) throw new Error(`${card.key}の名前・種別・クラスを確認してください。`)
-        if (card.text !== undefined && (typeof card.text !== "string" || card.text.length > 10000)) throw new Error(`${card.key}の効果は10000文字以内の文章にしてください。`)
-        if (card.colors !== undefined && (!Array.isArray(card.colors) || card.colors.length > nijiColors.length || card.colors.some(color => !nijiColors.includes(color)) || new Set(card.colors).size !== card.colors.length)) throw new Error(`${card.key}の色を確認してください。`)
-        if (card.tags !== undefined && !validCardTags(card.tags)) throw new Error(`${card.key}のタグを確認してください。`)
-        for (const [field, max] of [["cost", 999], ["power", 999999]]) {
-            if (card[field] !== null && (!Number.isSafeInteger(card[field]) || card[field] < 0 || card[field] > max)) throw new Error(`${card.key}の数値を確認してください。`)
-        }
-        if (!Number.isSafeInteger(card.sourceRow) || card.sourceRow < 1 || card.sourceRow > 1048576) throw new Error(`${card.key}の行番号を確認してください。`)
-        return {key: card.key, name: card.name.trim(), text: card.text ?? "", cardType: card.cardType, className: card.className,
-            cost: card.cardType === "channel" ? null : card.cost, power: card.cardType === "liver" ? card.power : null,
-            colors: card.cardType === "liver" ? nijiColors.filter(color => card.colors?.includes(color)) : [], tags: cardTypeSupportsTags(card.cardType) ? [...(card.tags || [])] : [], sourceRow: card.sourceRow}
-    })
-    return {source: library.source, sourceSheet: library.sourceSheet, cards}
-}
-function setCardLibrary(library) {
-    if (replay.mode === "replay") return false
-    try {
-        cardLibrary = normalizedCardLibrary(library)
-        libraryByKey = new Map(cardLibrary.cards.map(card => [card.key, card]))
-        return true
-    } catch (error) {notify(error.message, true); return false}
-}
+// BUNDLED_CARD_DATA_START
 const BUNDLED_CARD_CSV_LIMITS = {fileBytes: 1024 * 1024, cards: 500, timeout: 10000}
-const BUNDLED_CARD_CSV_HEADERS = ["ID", "カード名", "種別", "クラス", "レベル", "パワー", "色", "タグ", "効果"]
+const BUNDLED_CARD_CSV_HEADERS = ["ID", "カード名", "種別", "クラス", "レベル", "パワー", "色", "タグ", "限定", "効果"]
 let bundledDefinitionsCache = null
 let bundledCardLoadError = null
 let bundledDefinitionsLoading = null
+const BUNDLED_CARD_CSV_TYPES = {LIVER: "liver", ライバー: "liver", ライバーカード: "liver", EVENT: "event", イベント: "event", イベントカード: "event", STAGE: "stage", ステージ: "stage", ステージカード: "stage", CHANNEL: "channel", チャンネル: "channel", チャンネルカード: "channel"}
+const BUNDLED_CARD_CSV_CLASSES = {SOL: "太陽", LUNA: "月", COMET: "彗星", STELLA: "星", 太陽: "太陽", 月: "月", 彗星: "彗星", 星: "星"}
+const BUNDLED_CARD_CSV_COLORS = {R: "R", O: "O", Y: "Y", G: "G", B: "B", I: "I", V: "V", 赤: "R", 橙: "O", 黄: "Y", 緑: "G", 青: "B", 藍: "I", 紫: "V"}
+function normalizeBundledCardCsvRows(rows) {
+    if (!rows.length) throw new Error("default-cards.csvにカード情報がありません。")
+    const headers = rows[0].values.map(field => field.normalize("NFKC").trim())
+    if (headers.length !== BUNDLED_CARD_CSV_HEADERS.length || new Set(headers).size !== headers.length || BUNDLED_CARD_CSV_HEADERS.some(header => !headers.includes(header))) {
+        throw new Error("default-cards.csv " + rows[0].rowNumber + "行目：見出しはID・カード名・種別・クラス・レベル・パワー・色・タグ・限定・効果の10項目にしてください。")
+    }
+    const columns = new Map(headers.map((header, index) => [header, index]))
+    const keys = new Set(), cards = []
+    for (const row of rows.slice(1)) {
+        const fail = message => {throw new Error("default-cards.csv " + row.rowNumber + "行目：" + message)}
+        if (row.values.length !== headers.length) fail("列数が10項目と一致しません。カンマや改行を含む値は引用符で囲んでください。")
+        const value = label => row.values[columns.get(label)]
+        const readText = (label, maximum, required = false) => {
+            const raw = value(label)
+            if (raw.length > maximum) fail(label + "は" + maximum + "文字以内にしてください。")
+            const result = raw.trim()
+            if (required && !result) fail(label + "が空欄です。")
+            return result
+        }
+        const key = readText("ID", 100, true)
+        if (!/^[A-Za-z0-9_-]+$/.test(key) || ["__proto__", "prototype", "constructor"].includes(key)) fail("IDには半角英数字・ハイフン・アンダーバーを使い、予約語は避けてください。")
+        if (keys.has(key)) fail("ID「" + key + "」が重複しています。")
+        const name = readText("カード名", 200, true), rawType = readText("種別", 40, true).toUpperCase(), rawClass = readText("クラス", 40).toUpperCase()
+        if (!Object.hasOwn(BUNDLED_CARD_CSV_TYPES, rawType)) fail("種別「" + rawType + "」に対応していません。")
+        if (rawClass && !Object.hasOwn(BUNDLED_CARD_CSV_CLASSES, rawClass)) fail("クラス「" + rawClass + "」に対応していません。")
+        const cardType = BUNDLED_CARD_CSV_TYPES[rawType]
+        const number = (label, maximum) => {
+            const raw = value(label).trim()
+            if (raw === "") return null
+            const result = Number(raw)
+            if (!/^\d+(?:\.0+)?$/.test(raw) || !Number.isSafeInteger(result) || result > maximum) fail(label + "は0～" + maximum + "の整数にしてください。")
+            return result
+        }
+        const cost = number("レベル", 999), power = number("パワー", 999999), text = value("効果")
+        if (text.length > 10000) fail("効果は10000文字以内にしてください。")
+        let colors = []
+        if (cardType === "liver") {
+            const rawColors = value("色")
+            if (rawColors.length > 200) fail("色は200文字以内にしてください。")
+            const selected = new Set()
+            for (const token of rawColors.normalize("NFKC").toUpperCase().replace(/[\s,、・/|]+/g, "")) {
+                if (!Object.hasOwn(BUNDLED_CARD_CSV_COLORS, token)) fail("色欄の「" + token + "」に対応していません。")
+                selected.add(BUNDLED_CARD_CSV_COLORS[token])
+            }
+            colors = nijiColors.filter(color => selected.has(color))
+        }
+        let tags, restriction
+        try {tags = normalizeCardTags(value("タグ")); restriction = normalizeCardRestriction(value("限定"))}
+        catch (error) {fail(error.message)}
+        keys.add(key)
+        cards.push({key, name, text, cardType, className: rawClass ? BUNDLED_CARD_CSV_CLASSES[rawClass] : "",
+            cost: cardType === "channel" ? null : cost, power: cardType === "liver" ? power : null,
+            colors, tags, restriction, sourceRow: row.rowNumber})
+    }
+    if (!cards.length) throw new Error("default-cards.csvに読み込めるカードがありません。")
+    return {source: "default-cards.csv", sourceSheet: "CSV", cards}
+}
 function parseBundledCardCsv(source) {
     if (typeof source !== "string") throw new Error("CSVの内容を読み取れませんでした。")
+    if (source.length > BUNDLED_CARD_CSV_LIMITS.fileBytes || new TextEncoder().encode(source).byteLength > BUNDLED_CARD_CSV_LIMITS.fileBytes) throw new Error("default-cards.csvは1MB以下にしてください。")
     const text = source.replace(/^\uFEFF/u, ""), rows = []
     let values = [], value = "", quoted = false, closedQuote = false, line = 1, rowLine = 1
     const fail = message => {throw new Error("default-cards.csv " + line + "行目：" + message)}
-    const finishField = () => {values.push(value); value = ""; closedQuote = false}
+    const finishField = () => {
+        values.push(value); value = ""; closedQuote = false
+        if (values.length > BUNDLED_CARD_CSV_HEADERS.length) fail("列数が10項目を超えています。カンマや改行を含む値は引用符で囲んでください。")
+    }
     const finishRow = () => {
         finishField()
         if (values.some(field => field.trim())) rows.push({rowNumber: rowLine, values})
@@ -420,15 +161,7 @@ function parseBundledCardCsv(source) {
     if (quoted) fail("引用符が閉じていません。")
     if (value || values.length || closedQuote) finishRow()
     if (!rows.length) throw new Error("default-cards.csvにカード情報がありません。")
-    const headers = rows[0].values.map(field => field.normalize("NFKC").trim())
-    if (headers.length !== BUNDLED_CARD_CSV_HEADERS.length || new Set(headers).size !== headers.length || BUNDLED_CARD_CSV_HEADERS.some(header => !headers.includes(header))) {
-        throw new Error("default-cards.csvの見出しは、ID・カード名・種別・クラス・レベル・パワー・色・タグ・効果の9項目にしてください。")
-    }
-    for (const row of rows.slice(1)) if (row.values.length !== headers.length) {
-        throw new Error("default-cards.csv " + row.rowNumber + "行目：列数が9項目と一致しません。効果・色・タグにカンマや改行を含める場合は引用符で囲んでください。")
-    }
-    rows[0].values = headers.map(header => header === "種別" ? "種類" : header === "パワー" ? "Power" : header)
-    return normalizedCardLibrary(normalizeCardLibraryRows(rows, "default-cards.csv", "CSV"))
+    return normalizeBundledCardCsvRows(rows)
 }
 function bundledCardDefinitions() {
     if (bundledDefinitionsCache === null) throw new Error("標準カードをまだ読み込めていません。default-cards.csvを本体と同じフォルダに配置して、画面を開き直してください。")
@@ -493,7 +226,7 @@ async function loadBundledCardDefinitions() {
             bundledDefinitionsCache = library.cards.map(card => ({
                 sourceCardKey: card.key, name: card.name, text: card.text, asset: "",
                 cardType: card.cardType, className: card.className, cost: card.cost,
-                power: card.power, colors: [...card.colors], tags: [...card.tags]
+                power: card.power, colors: [...card.colors], tags: [...card.tags], restriction: card.restriction
             }))
             bundledCardLoadError = null
             renderBundledCardLoadNotice(null)
@@ -539,170 +272,13 @@ function addBundledCardsToState(candidate) {
     }
     return {added: missing.length, updated: updated.length, limitReached: false}
 }
-async function readCardLibraryFile(file) {
-    if (!file || libraryImporting || replay.mode === "replay") return false
-    if (!/\.xlsx$/i.test(file.name) || file.size > 10 * 1024 * 1024) {notify("10MB以内の.xlsxファイルを選んでください。", true); return false}
-    libraryImporting = true
-    notify("Excelのカード情報を読み取っています。")
-    try {
-        const library = await parseCardLibraryXlsx(await file.arrayBuffer(), file.name)
-        if (!setCardLibrary(library)) return false
-        showCardLibrary(true)
-        return true
-    } catch (error) {notify(`Excelを読み込めませんでした。${error.message}`, true); return false}
-    finally {libraryImporting = false}
-}
-function registeredLibraryKeys() {
-    return new Set(Object.values(state.catalog).map(item => item.sourceCardKey).filter(Boolean))
-}
-function registeredLibraryDefinitions() {
-    const definitions = new Map()
-    for (const [id, item] of Object.entries(state.catalog)) {
-        if (!item.sourceCardKey || isColorDefinition(item)) continue
-        if (!definitions.has(item.sourceCardKey)) definitions.set(item.sourceCardKey, [])
-        definitions.get(item.sourceCardKey).push({id, item})
-    }
-    return definitions
-}
-function libraryCardRegistration(card, registrations = registeredLibraryDefinitions()) {
-    const definitions = registrations.get(card.key) || []
-    const effectDefinitions = card.text?.trim() ? definitions.filter(({item}) => !item.text?.trim()) : []
-    const colorDefinitions = card.cardType === "liver" && card.colors?.length
-        ? definitions.filter(({item}) => textCardType(item) === "liver" && !item.colors?.length) : []
-    const tagDefinitions = cardTypeSupportsTags(card.cardType) && card.tags?.length
-        ? definitions.filter(({item}) => cardTypeSupportsTags(textCardType(item)) && !item.tags?.length) : []
-    const additions = [["effect", effectDefinitions], ["color", colorDefinitions], ["tag", tagDefinitions]].filter(([, targets]) => targets.length).map(([name]) => name)
-    const mode = !definitions.length ? "new" : !additions.length ? "registered" : additions.length === 1 ? additions[0] : "details"
-    const targets = new Set([...effectDefinitions, ...colorDefinitions, ...tagDefinitions])
-    return {mode, additions, definitions: mode === "registered" ? definitions : definitions.filter(item => targets.has(item)), effectDefinitions, colorDefinitions, tagDefinitions}
-}
-function isLibraryCardEligible(card, registrations) {
-    return libraryCardRegistration(card, registrations).mode !== "registered"
-}
-function librarySelectionCounts(registrations = registeredLibraryDefinitions()) {
-    const counts = {new: 0, effect: 0, color: 0, tag: 0}
-    for (const key of libraryUi.selected) {
-        const card = libraryByKey.get(key)
-        if (!card) continue
-        const {mode, effectDefinitions, colorDefinitions, tagDefinitions} = libraryCardRegistration(card, registrations)
-        if (mode === "new") counts.new++
-        if (effectDefinitions.length) counts.effect++
-        if (colorDefinitions.length) counts.color++
-        if (tagDefinitions.length) counts.tag++
-    }
-    return counts
-}
-function libraryColorTags(card) {
-    const colors = liverCardColors(card)
-    return colors.length ? `<span class="library-color-tags">${colors.map(color => `<span class="library-color-tag"><span class="card-color-swatch color-${color.toLowerCase()}" aria-hidden="true"></span>${colorNames[color]}</span>`).join("")}</span>` : "—"
-}
-function filteredLibraryCards() {
-    const normalize = value => String(value).normalize("NFKC").toLocaleLowerCase("ja")
-    const terms = normalize(libraryUi.query).trim().split(/\s+/).filter(Boolean)
-    return cardLibrary.cards.filter(card => (!libraryUi.cardType || card.cardType === libraryUi.cardType)
-        && (!libraryUi.className || card.className === libraryUi.className)
-        && terms.every(term => normalize(`${card.name} ${card.key} ${cardTags(card).map(tag => `#${tag}`).join(" ")} ${card.text || ""}`).includes(term)))
-}
 function libraryCardSummary(item) {
     const parts = [item.sourceCardKey, textCardTypes[textCardType(item)], item.className]
     if (textCardType(item) !== "channel" && item.cost !== undefined && item.cost !== null) parts.push(`レベル ${item.cost}`)
     if (textCardType(item) === "liver" && item.power !== undefined && item.power !== null) parts.push(`パワー ${item.power}`)
     return parts.filter(Boolean).join(" / ")
 }
-function showCardLibrary(selectAll = false) {
-    if (replay.mode === "replay") return false
-    const registrations = registeredLibraryDefinitions()
-    Object.assign(libraryUi, {query: "", cardType: "", className: "", page: 0, effectKey: "", selected: new Set(selectAll ? cardLibrary.cards.filter(card => isLibraryCardEligible(card, registrations)).map(card => card.key) : [])})
-    if (!cardLibrary.cards.length) {
-        openModal("Excelからカードを取り込む", `<div class="library-entry"><h3>カードリストのExcelを選択</h3><p>カード名・種別・クラス・色・レベル・パワー・タグ・効果を読み取り、一覧で確認してから登録できます。</p><button class="primary" data-action="pick-card-library">Excelファイルを選択</button></div><div class="modal-footer"><button data-action="catalog">カード登録へ戻る</button></div>`, "card-library")
-        return true
-    }
-    const types = Object.entries(textCardTypes).filter(([value]) => value !== "other").map(([value, label]) => `<option value="${value}">${label}</option>`).join("")
-    const classes = textCardClasses.map(value => `<option value="${value}">${value}</option>`).join("")
-    openModal("取り込み内容を確認", `<div class="card-library"><div class="modal-toolbar"><strong>${escapeHTML(cardLibrary.source)}</strong><span>${cardLibrary.cards.length}種類</span><button data-action="pick-card-library">別のExcelを選択</button></div><p class="help-note">使うカードを選んで登録してください。登録済みのカードには、未入力の効果・色・タグを追加できます。設定済みの内容は上書きしません。ExcelのIDを使います。</p><div class="library-filters"><label>カード名・ID・タグ・効果<input id="librarySearch" type="search" maxlength="200" placeholder="カード名・ID・タグ・効果で検索"></label><label>カード種別<select id="libraryType"><option value="">すべて</option>${types}</select></label><label>クラス<select id="libraryClass"><option value="">すべて</option>${classes}</select></label></div><div id="libraryResults"></div></div>`, "card-library")
-    renderLibraryResults()
-    return true
-}
-function renderLibraryResults(preserveScroll = false) {
-    if (modalKind !== "card-library" || !cardLibrary.cards.length) return
-    const previousScroll = preserveScroll ? document.querySelector(".library-list")?.scrollTop || 0 : 0
-    const registrations = registeredLibraryDefinitions()
-    for (const key of libraryUi.selected) if (!libraryByKey.has(key) || !isLibraryCardEligible(libraryByKey.get(key), registrations)) libraryUi.selected.delete(key)
-    const cards = filteredLibraryCards()
-    const pages = Math.max(1, Math.ceil(cards.length / libraryPageSize))
-    libraryUi.page = integer(libraryUi.page, 0, pages - 1)
-    const visible = cards.slice(libraryUi.page * libraryPageSize, (libraryUi.page + 1) * libraryPageSize)
-    const eligible = visible.some(card => isLibraryCardEligible(card, registrations))
-    const counts = librarySelectionCounts(registrations)
-    const countSummary = [counts.new ? `新規${counts.new}種類` : "", counts.effect ? `効果追加${counts.effect}種類` : "", counts.color ? `色追加${counts.color}種類` : "", counts.tag ? `タグ追加${counts.tag}種類` : ""].filter(Boolean).join("・") || "0種類"
-    const registerLabel = counts.effect || counts.color || counts.tag ? [counts.new ? `新規${counts.new}種類を登録` : "", counts.effect ? `${counts.effect}種類に効果を追加` : "", counts.color ? `${counts.color}種類に色を追加` : "", counts.tag ? `${counts.tag}種類にタグを追加` : ""].filter(Boolean).join("・") : `選択した${counts.new}種類を登録`
-    const rows = visible.map(card => {
-        const {mode, additions} = libraryCardRegistration(card, registrations)
-        const added = mode === "registered", inputId = `librarySelect-${card.key}`
-        const status = added ? "登録済み" : mode === "new" ? "新規登録" : `登録済み · ${additions.map(field => ({effect: "効果", color: "色", tag: "タグ"})[field]).join("・")}を追加`
-        const effectButton = card.text.trim() || cardTags(card).length ? `<button type="button" class="small library-effect-button" data-action="library-effect" data-library-key="${escapeHTML(card.key)}" aria-expanded="${libraryUi.effectKey === card.key}" aria-controls="libraryEffectDetails">${libraryUi.effectKey === card.key ? "詳細を閉じる" : "詳細を見る"}</button>` : ""
-        return `<div class="library-row${added ? " is-registered" : mode !== "new" ? " needs-effect" : ""}"><input id="${escapeHTML(inputId)}" type="checkbox" data-library-key="${escapeHTML(card.key)}" aria-label="${escapeHTML(card.name)} (${escapeHTML(card.key)})を選択" ${added ? "disabled checked" : libraryUi.selected.has(card.key) ? "checked" : ""}><div class="library-name"><label for="${escapeHTML(inputId)}"><strong>${escapeHTML(card.name)}</strong><small>${escapeHTML(card.key)} · ${status}</small></label>${effectButton}</div><span class="library-type" data-label="種別">${escapeHTML(textCardTypes[card.cardType])}</span><span class="library-class" data-label="クラス">${escapeHTML(card.className || "—")}</span><span class="library-colors" data-label="色">${libraryColorTags(card)}</span><span class="library-cost" data-label="レベル">${card.cardType === "channel" ? "なし" : card.cost ?? "—"}</span><span class="library-power" data-label="パワー">${card.cardType === "liver" ? card.power ?? "—" : "—"}</span></div>`
-    }).join("")
-    const effectCard = visible.find(card => card.key === libraryUi.effectKey)
-    if (!effectCard) libraryUi.effectKey = ""
-    const details = effectCard ? `<section id="libraryEffectDetails" class="library-effect-details"><h3>${escapeHTML(effectCard.name)} <small>${escapeHTML(effectCard.key)}</small></h3>${cardTagsHTML(effectCard)}<p class="description" style="white-space:pre-wrap">${escapeHTML(effectCard.text)}</p></section>` : `<div id="libraryEffectDetails"></div>`
-    byId("libraryResults").innerHTML = `<div class="library-summary" role="status"><span>${cards.length}件${cards.length ? `中 ${libraryUi.page * libraryPageSize + 1}〜${libraryUi.page * libraryPageSize + visible.length}件` : ""}</span><span>${countSummary}を選択</span></div><div class="library-list"><div class="library-list-head" aria-hidden="true"><span></span><span>カード名 / ID</span><span>種別</span><span>クラス</span><span>色</span><span>レベル</span><span>パワー</span></div>${rows || `<p class="library-empty">条件に合うカードがありません。</p>`}</div>${details}<div class="library-pagination"><button data-action="library-page" data-delta="-1" ${libraryUi.page === 0 ? "disabled" : ""}>前のページ</button><span>${libraryUi.page + 1} / ${pages}</span><button data-action="library-page" data-delta="1" ${libraryUi.page + 1 >= pages ? "disabled" : ""}>次のページ</button></div><div class="modal-footer"><button data-action="catalog">カード登録へ戻る</button><button data-action="library-select-page" ${eligible ? "" : "disabled"}>表示中を選択</button><button data-action="library-clear" ${libraryUi.selected.size ? "" : "disabled"}>選択解除</button><button data-action="library-register" class="primary" ${libraryUi.selected.size ? "" : "disabled"}>${registerLabel}</button></div>`
-    const list = document.querySelector(".library-list")
-    if (list) list.scrollTop = previousScroll
-}
-function selectLibraryCard(key, selected) {
-    if (replay.mode === "replay" || !libraryByKey.has(key) || !isLibraryCardEligible(libraryByKey.get(key))) return false
-    if (selected) libraryUi.selected.add(key)
-    else libraryUi.selected.delete(key)
-    renderLibraryResults(true)
-    return true
-}
-function toggleLibraryEffect(key) {
-    if (replay.mode === "replay" || (!libraryByKey.get(key)?.text.trim() && !cardTags(libraryByKey.get(key)).length)) return false
-    libraryUi.effectKey = libraryUi.effectKey === key ? "" : key
-    renderLibraryResults(true)
-    return true
-}
-function registerLibraryCards(keys = [...libraryUi.selected]) {
-    if (replay.mode === "replay") return false
-    if (!Array.isArray(keys) || keys.some(key => !libraryByKey.has(key))) {
-        notify("カードリストから追加するカードを選んでください。", true)
-        return false
-    }
-    const registrations = registeredLibraryDefinitions()
-    const cards = [...new Set(keys)].map(key => libraryByKey.get(key)).map(card => ({card, ...libraryCardRegistration(card, registrations)})).filter(item => item.mode !== "registered")
-    if (!cards.length) {notify("新規登録または効果・色・タグを追加するカードを選んでください。設定済みの内容は上書きしません。"); return 0}
-    const newCards = cards.filter(item => item.mode === "new"), effectCards = cards.filter(item => item.effectDefinitions.length), colorCards = cards.filter(item => item.colorDefinitions.length), tagCards = cards.filter(item => item.tagDefinitions.length)
-    const currentCount = Object.values(state.catalog).filter(item => !isColorDefinition(item)).length
-    if (newCards.length && currentCount + newCards.length > 500) {
-        notify(`登録は500種類までです。追加できるのはあと${500 - currentCount}種類です。`, true)
-        return false
-    }
-    const changes = [newCards.length ? `${newCards.length}種類を登録` : "", effectCards.length ? `${effectCards.length}種類に効果を追加` : "", colorCards.length ? `${colorCards.length}種類に色を追加` : "", tagCards.length ? `${tagCards.length}種類にタグを追加` : ""].filter(Boolean).join("・")
-    const added = transact(`カードリストから${changes}`, () => {
-        for (const {card: item} of newCards) {
-            state.catalog[uid("definition")] = {name: item.name, text: item.text, asset: "", cardType: item.cardType,
-                className: item.className, cost: item.cardType === "channel" ? null : item.cost,
-                power: item.cardType === "liver" ? item.power : null, colors: [...item.colors], tags: [...item.tags], sourceCardKey: item.key}
-        }
-        for (const {card, effectDefinitions} of effectCards) {
-            for (const {id} of effectDefinitions) state.catalog[id].text = card.text
-        }
-        for (const {card, colorDefinitions} of colorCards) {
-            for (const {id} of colorDefinitions) state.catalog[id].colors = [...card.colors]
-        }
-        for (const {card, tagDefinitions} of tagCards) {
-            for (const {id} of tagDefinitions) state.catalog[id].tags = [...card.tags]
-        }
-    })
-    if (!added) return false
-    libraryUi.selected.clear()
-    showCatalog()
-    notify(`${changes}しました。${newCards.length ? "「デッキ編集」で使えます。" : ""}`)
-    return cards.length
-}
-
-// CARD_LIBRARY_END
+// BUNDLED_CARD_DATA_END
 const colorNames = {R: "赤", O: "橙", Y: "黄", G: "緑", B: "青", I: "藍", V: "紫"}
 const phases = ["スタート", "メイン", "アクション", "セット", "エンド"]
 const defaultZones = () => [
@@ -1751,7 +1327,7 @@ function liverImageFaceHTML(item, imageHtml, powerOverride = undefined) {
 }
 function cardDetailFields(item = {}, definitionId = "") {
     const type = textCardType(item)
-    const inputId = field => definitionId ? `cardDetail_${definitionId}_${field}` : {cost: "newCardCost", className: "newCardClass", cardType: "newCardType", power: "newCardPower", colors: "newCardColors", tags: "newCardTags"}[field]
+    const inputId = field => definitionId ? `cardDetail_${definitionId}_${field}` : {cost: "newCardCost", className: "newCardClass", cardType: "newCardType", power: "newCardPower", colors: "newCardColors", tags: "newCardTags", restriction: "newCardRestriction"}[field]
     const attributes = field => `id="${inputId(field)}"${definitionId ? ` data-catalog-detail="${field}" data-definition="${definitionId}"` : ""}`
     const classValue = item.className || ""
     const oldClass = classValue && !textCardClasses.includes(classValue) ? `<option value="${escapeHTML(classValue)}" selected disabled>旧設定：${escapeHTML(classValue)}</option>` : ""
@@ -1763,7 +1339,7 @@ function cardDetailFields(item = {}, definitionId = "") {
         const data = definitionId ? `data-catalog-color="${color}" data-definition="${definitionId}"` : `data-new-card-color="${color}"`
         return `<label class="card-color-choice"><input id="${colorId}" type="checkbox" ${data} value="${color}" aria-label="${colorNames[color]}（${color}）" ${selectedColors.includes(color) ? "checked" : ""} ${type === "liver" ? "" : "disabled"}><span class="card-color-swatch color-${color.toLowerCase()}" aria-hidden="true"></span><span>${colorNames[color]}</span></label>`
     }).join("")
-    return `<div class="card-detail-fields ${definitionId ? "catalog-card-details" : "new-text-card-details"}"><label>カード種別<select ${attributes("cardType")}>${types}</select></label><label>レベル<input ${attributes("cost")} type="number" min="0" max="999" step="1" value="${type === "channel" ? "" : (item.cost ?? "")}" placeholder="${type === "channel" ? "レベルなし" : "未設定"}" ${type === "channel" ? "disabled" : ""}></label><label>クラス<select ${attributes("className")}>${oldClass}${classes}</select></label><label>パワー<input ${attributes("power")} type="number" min="0" max="999999" step="1" value="${item.power ?? ""}" placeholder="未設定" ${type === "liver" ? "" : "disabled"}></label></div><label class="card-tag-field">タグ（カンマ区切り・#なし）<input ${attributes("tags")} type="text" maxlength="2000" value="${escapeHTML((item.tags || []).join(", "))}" placeholder="囚人, JK" aria-label="カードのタグ（カンマ区切り・#なし）" ${cardTypeSupportsTags(type) ? "" : "disabled"}></label><fieldset id="${inputId("colors")}" class="card-color-fields" ${type === "liver" ? "" : "disabled"}><legend>ライバーの色 <span>複数選択可</span></legend><div class="card-color-choices">${colors}</div></fieldset>`
+    return `<div class="card-detail-fields ${definitionId ? "catalog-card-details" : "new-text-card-details"}"><label>カード種別<select ${attributes("cardType")}>${types}</select></label><label>レベル<input ${attributes("cost")} type="number" min="0" max="999" step="1" value="${type === "channel" ? "" : (item.cost ?? "")}" placeholder="${type === "channel" ? "レベルなし" : "未設定"}" ${type === "channel" ? "disabled" : ""}></label><label>クラス<select ${attributes("className")}>${oldClass}${classes}</select></label><label>パワー<input ${attributes("power")} type="number" min="0" max="999999" step="1" value="${item.power ?? ""}" placeholder="未設定" ${type === "liver" ? "" : "disabled"}></label></div><label class="card-tag-field">タグ（カンマ区切り・#なし）<input ${attributes("tags")} type="text" maxlength="2000" value="${escapeHTML((item.tags || []).join(", "))}" placeholder="囚人, JK" aria-label="カードのタグ（カンマ区切り・#なし）" ${cardTypeSupportsTags(type) ? "" : "disabled"}></label><label class="card-tag-field">限定（カンマ区切り・#なし）<input ${attributes("restriction")} type="text" maxlength="2000" value="${escapeHTML(item.restriction || "")}" placeholder="同じ, 学園, 月ノ美兎" aria-label="カードの限定（カンマ区切り・#なし）"></label><fieldset id="${inputId("colors")}" class="card-color-fields" ${type === "liver" ? "" : "disabled"}><legend>ライバーの色 <span>複数選択可</span></legend><div class="card-color-choices">${colors}</div></fieldset>`
 }
 function readCardDetailColors(definitionId = "") {
     const selector = definitionId ? `[data-catalog-color][data-definition="${definitionId}"]:checked` : "[data-new-card-color]:checked"
@@ -1789,6 +1365,7 @@ function syncCardDetailFields(item, definitionId = "") {
 }
 function parseCardDetail(field, raw) {
     if (field === "tags") return normalizeCardTags(raw)
+    if (field === "restriction") return normalizeCardRestriction(raw)
     if (field === "colors") {
         if (!Array.isArray(raw) || raw.length > nijiColors.length || new Set(raw).size !== raw.length || raw.some(color => !nijiColors.includes(color))) throw new Error("ライバーの色は7色から選んでください。")
         return nijiColors.filter(color => raw.includes(color))
@@ -1811,7 +1388,7 @@ function parseCardDetail(field, raw) {
 }
 function updateCatalogCardDetail(id, field, raw) {
     const item = state.catalog[id]
-    if (replay.mode === "replay" || !Object.hasOwn(state.catalog, id) || isColorDefinition(item) || !["cost", "className", "cardType", "power", "colors", "tags"].includes(field) || (field === "cost" && textCardType(item) === "channel") || (["power", "colors"].includes(field) && textCardType(item) !== "liver") || (field === "tags" && !cardTypeSupportsTags(textCardType(item)))) return false
+    if (replay.mode === "replay" || !Object.hasOwn(state.catalog, id) || isColorDefinition(item) || !["cost", "className", "cardType", "power", "colors", "tags", "restriction"].includes(field) || (field === "cost" && textCardType(item) === "channel") || (["power", "colors"].includes(field) && textCardType(item) !== "liver") || (field === "tags" && !cardTypeSupportsTags(textCardType(item)))) return false
     try {
         const value = parseCardDetail(field, raw)
         if (field === "cardType" && (value === "channel") !== (textCardType(item) === "channel") &&
@@ -2123,7 +1700,7 @@ function preview(id) {
     previewCardId = id
     const item = definition(id)
     const card = state.cards[id]
-    openModal("カードの内容を確認", `<div class="big-preview">${cardHTML(id, {reveal: true, preview: true})}<div><h2>${escapeHTML(item.name)}</h2>${cardTagsHTML(item)}<p class="description">${escapeHTML(item.text || "カードの説明は未登録です。")}</p>${card.note ? `<h3 style="margin-top:20px">このカードの一時メモ</h3><p class="description">${escapeHTML(card.note)}</p>` : ""}${["deck", "discard", "channel_under"].includes(where(id)?.zone) ? `<div style="margin-top:20px">${pileMoveControls(where(id).zone, id)}</div>` : ""}</div></div>`, "preview")
+    openModal("カードの内容を確認", `<div class="big-preview">${cardHTML(id, {reveal: true, preview: true})}<div><h2>${escapeHTML(item.name)}</h2>${cardTagsHTML(item)}${cardRestrictionHTML(item)}<p class="description">${escapeHTML(item.text || "カードの説明は未登録です。")}</p>${card.note ? `<h3 style="margin-top:20px">このカードの一時メモ</h3><p class="description">${escapeHTML(card.note)}</p>` : ""}${["deck", "discard", "channel_under"].includes(where(id)?.zone) ? `<div style="margin-top:20px">${pileMoveControls(where(id).zone, id)}</div>` : ""}</div></div>`, "preview")
     captureReplayFrame(where(id)?.zone === "deck" ? `${state.players[where(id).player].name}の山札のカードを確認` : "山札の確認を終了")
 }
 function returnToInspector() {
@@ -2233,7 +1810,7 @@ function catalogResultsHTML() {
         return `<article class="catalog-entry"><div class="catalog-summary-row">${miniature(item)}<div class="catalog-card-info"><strong>${escapeHTML(item.name)}</strong><div class="catalog-card-summary">${escapeHTML(libraryCardSummary(item))}</div>${excerpt ? `<p class="catalog-effect-excerpt">${escapeHTML(excerpt)}</p>` : ""}</div><div class="catalog-row-actions"><button class="small" data-action="catalog-edit" data-definition="${id}" aria-expanded="${editing}">${editing ? "編集を閉じる" : "編集"}</button><button class="small" data-action="delete-definition" data-definition="${id}" ${usedDefinitions.has(id) || savedDeckUsesDefinition(id) || deckManagerUsesDefinition(id) ? "disabled" : ""}>削除</button></div></div>${editing ? `<div class="catalog-editor"><label>カード名<input type="text" maxlength="200" value="${escapeHTML(item.name)}" data-catalog-name="${id}" aria-label="カード名"></label><label>ID（任意）<input type="text" maxlength="100" value="${escapeHTML(item.sourceCardKey || "")}" data-catalog-id="${id}" aria-label="カードID" autocomplete="off"></label>${cardDetailFields(item, id)}<label>効果・説明<textarea maxlength="10000" data-catalog-text="${id}" aria-label="効果・説明" rows="5">${escapeHTML(item.text || "")}</textarea></label><p class="help-note">入力欄を離れると反映します。</p></div>` : ""}</article>`
     }).join("")
     const total = registered.length
-    return `<div class="catalog-summary" role="status">登録済み ${total}種類${entries.length ? ` · ${entries.length}件中 ${start + 1}〜${Math.min(start + catalogPageSize, entries.length)}件` : " · 該当するカードはありません"}</div><div class="catalog-list">${rows || `<p class="muted">${total ? "検索条件を変えてください。" : "画像・文字カードやExcelからカードを追加してください。"}</p>`}</div><div class="catalog-pagination"><button class="small" data-action="catalog-page" data-delta="-1" ${catalogUi.page === 0 ? "disabled" : ""}>前へ</button><span>${catalogUi.page + 1} / ${pages}</span><button class="small" data-action="catalog-page" data-delta="1" ${catalogUi.page + 1 >= pages ? "disabled" : ""}>次へ</button></div>`
+    return `<div class="catalog-summary" role="status">登録済み ${total}種類${entries.length ? ` · ${entries.length}件中 ${start + 1}〜${Math.min(start + catalogPageSize, entries.length)}件` : " · 該当するカードはありません"}</div><div class="catalog-list">${rows || `<p class="muted">${total ? "検索条件を変えてください。" : "画像または文字カードを追加してください。"}</p>`}</div><div class="catalog-pagination"><button class="small" data-action="catalog-page" data-delta="-1" ${catalogUi.page === 0 ? "disabled" : ""}>前へ</button><span>${catalogUi.page + 1} / ${pages}</span><button class="small" data-action="catalog-page" data-delta="1" ${catalogUi.page + 1 >= pages ? "disabled" : ""}>次へ</button></div>`
 }
 function renderCatalogResults() {
     const results = byId("catalogResults")
@@ -2241,7 +1818,7 @@ function renderCatalogResults() {
 }
 function showCatalog() {
     const types = Object.entries(textCardTypes).map(([value, label]) => `<option value="${value}" ${catalogUi.cardType === value ? "selected" : ""}>${label}</option>`).join("")
-    openModal("カード登録", `<div class="modal-toolbar"><button data-action="pick-images">カード画像を複数追加</button><span class="muted">PNG / JPEG / WebP · 1ファイル10MBまで</span></div><section class="catalog-new-card"><h3>画像なしの文字カードを追加</h3><div class="control-row"><input id="newCardName" type="text" maxlength="200" placeholder="カード名" class="grow"><button data-action="add-text-card">追加</button></div><div class="control-row"><label class="grow">ID（任意）<input id="newCardId" type="text" maxlength="100" placeholder="CARD-001" class="full" autocomplete="off"></label></div>${cardDetailFields()}<textarea id="newCardText" maxlength="10000" placeholder="効果・説明" rows="3"></textarea></section><div class="catalog-filters"><label>カード名・ID・タグ・効果<input id="catalogSearch" type="search" maxlength="200" value="${escapeHTML(catalogUi.query)}" placeholder="カード名・ID・タグ・効果で検索" autocomplete="off"></label><label>カード種別<select id="catalogType"><option value="">すべて</option>${types}</select></label></div><div id="catalogResults">${catalogResultsHTML()}</div><div class="modal-footer catalog-footer"><div class="catalog-import-actions"><button data-action="pick-card-library">Excelを取り込む</button>${cardLibrary.cards.length ? `<button data-action="card-library">読み取った一覧を開く</button>` : ""}</div><button data-action="catalog-return-decks" class="primary">${appPage === "deck" ? "デッキに戻る" : "デッキ管理へ"}</button><button data-action="close-modal">閉じる</button></div>`, "catalog")
+    openModal("カード登録", `<div class="modal-toolbar"><button data-action="pick-images">カード画像を複数追加</button><span class="muted">PNG / JPEG / WebP · 1ファイル10MBまで</span></div><section class="catalog-new-card"><h3>画像なしの文字カードを追加</h3><div class="control-row"><input id="newCardName" type="text" maxlength="200" placeholder="カード名" class="grow"><button data-action="add-text-card">追加</button></div><div class="control-row"><label class="grow">ID（任意）<input id="newCardId" type="text" maxlength="100" placeholder="CARD-001" class="full" autocomplete="off"></label></div>${cardDetailFields()}<textarea id="newCardText" maxlength="10000" placeholder="効果・説明" rows="3"></textarea></section><div class="catalog-filters"><label>カード名・ID・タグ・効果<input id="catalogSearch" type="search" maxlength="200" value="${escapeHTML(catalogUi.query)}" placeholder="カード名・ID・タグ・効果で検索" autocomplete="off"></label><label>カード種別<select id="catalogType"><option value="">すべて</option>${types}</select></label></div><div id="catalogResults">${catalogResultsHTML()}</div><div class="modal-footer catalog-footer"><button data-action="catalog-return-decks" class="primary">${appPage === "deck" ? "デッキに戻る" : "デッキ管理へ"}</button><button data-action="close-modal">閉じる</button></div>`, "catalog")
 }
 function handleCatalogInput(element) {
     if (element.id !== "catalogSearch") return false
@@ -2307,7 +1884,7 @@ function addTextCard() {
     try {
         const sourceCardKey = parseCardId(byId("newCardId").value)
         const cardType = parseCardDetail("cardType", byId("newCardType").value || "other")
-        const details = {cardType, cost: cardType === "channel" ? null : parseCardDetail("cost", byId("newCardCost").value), className: parseCardDetail("className", byId("newCardClass").value), power: parseCardDetail("power", byId("newCardPower").value), colors: cardType === "liver" ? readCardDetailColors() : [], tags: cardTypeSupportsTags(cardType) ? parseCardDetail("tags", byId("newCardTags").value) : []}
+        const details = {cardType, cost: cardType === "channel" ? null : parseCardDetail("cost", byId("newCardCost").value), className: parseCardDetail("className", byId("newCardClass").value), power: parseCardDetail("power", byId("newCardPower").value), colors: cardType === "liver" ? readCardDetailColors() : [], tags: cardTypeSupportsTags(cardType) ? parseCardDetail("tags", byId("newCardTags").value) : [], restriction: parseCardDetail("restriction", byId("newCardRestriction").value)}
         const added = transact("文字カードを登録", () => {state.catalog[uid("definition")] = {name, text, asset: "", ...details, ...(sourceCardKey ? {sourceCardKey} : {})}})
         if (added) showCatalog()
         return added
@@ -2929,7 +2506,7 @@ function deleteZone(id) {
     showSettings()
 }
 function showHelp() {
-    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>標準のカードは最初から登録されており、すぐにデッキを作れます。起動時にdefault-cards.csvを読み込み、同じIDの標準カードも名前・効果・レベルなどを最新内容へ更新します。空欄やタグ削除も反映し、登録済み画像とCSVにない独自カードは保持します。カードを追加・更新する場合は、「カード登録」の「Excelを取り込む」で.xlsxファイルを選ぶと、カード一覧を表示します。内容を確認し、使うカードを選んで登録してください。カード名・種別・クラス・色・レベル・パワー・タグ・効果を読み取ります。「効果を見る」で全文を確認できます。同じIDの登録済みカードには、未入力の効果・色・タグを追加できます。設定済みの効果・色と他の項目は保持します。色はライバーカードだけに反映します。カードごとの画像の追加や、文字カードの手入力もできます。文字カードにはIDを入力・編集できます。ライバー・イベント・ステージ・チャンネルにはカンマ区切りでタグを登録でき、空白と#を除いて保存します。タグは詳細画面と検索に使い、カードの表面には表示しません。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にレベル、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、レベルの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにレベルはありません。未設定の項目は表示しません。カード登録の一覧にはユーザーが追加したカードだけを12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。標準カードはデッキ管理のカード一覧から使えます。「デッキ管理」の専用ページで名前付きのデッキを複数保存できます。左にカードの詳細、中央にチャンネルとデッキ、右に追加用カード一覧を表示します。保存は盤面を変更せず、編集画面は開いたままです。盤面の「デッキを選ぶ」から保存デッキを山札とチャンネルへ反映してください。カード登録は両ページで共有します。「画像出力」では、カード画像・名前・ID・枚数を1枚のPNGにまとめます。「TXT出力」でデッキ名・チャンネル・カードのID・名前・枚数・並び順をテキストに保存できます。「TXT読込」で確認後、新しいデッキとして編集できます。標準カード以外を使う場合は、先にそのカードを登録してください。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。中央のデッキ欄には編集中のカードと枚数を表示し、枚数を直接変更できます。その下には色別枚数と「レベル分布（コストカーブ）」を表示します。レベルごとにカードの枚数を集計し、未設定は別に表示します。チャンネルは含めず、追加・削除・枚数入力に合わせて更新します。編集画面でブラウザの戻るを押すとデッキ一覧へ戻り、未保存なら保存・破棄・編集に戻るを選べます。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。Excelは「全カード」シートを優先し、ID・カード名・種類・クラス・レベル・Powerと、任意のColors・効果列を読みます。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。「選択」と「履歴」の間の「効果」タブでは、選択したカードの効果を読めます。開いたまま別のカードを選ぶと表示が切り替わります。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。手札やフィールドなど、別のゾーンから盤面の山札へドラッグすると、山札の一番上に戻ります。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。ログは最後に送ったカードが先頭です。PCでは手札・フィールド・山札・セット・チャンネル・ステージ・ログの見出しをカードの左側に置き、縦方向を詰めています。セット・チャンネル・ステージ・ログは同じ高さに揃えています。手札・山札・ログの枚数は見出しの下に表示し、フィールドとカラーラインの枚数は表示しません。プレイヤーのカウンターは盤面の枠外の右にA・＋・数値・−・B・＋・数値・−の順で縦1列に表示します。自分側は山札・ログの右、相手の全フィールドではカラーラインの右に置き、−／＋で増減できます。通常カードはチャンネル欄へドラッグするか、移動先の「チャンネルの下」で重ねられます。「下 ○枚」で一覧を開き、各カードの「ログへ」で1枚ずつ取り除けます。チャンネルを先に設定してください。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」はPCでは50枚ずつ、スマートフォンでは24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードを選択し、「自分／相手 の 手札／フィールド／フィールド（横）／セット／ステージ／ログ／チャンネルの下」から送り先を選んで「移動」を押します。「山札の下へ」も使えます。ログからは「ログ」を除く同じ移動先と、「山札の下へ」「山札の上へ」を使えます。チャンネルの下の一覧・詳細からも手札やフィールドなどへ移せますが、同じチャンネルの下への移動は選択肢に含めません。手札へ移すと表向き・縦向きになります。「自分／相手」は操作側を基準にし、山札の上下へのボタンは元のプレイヤーの山札へ戻します。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」ではユーザーが追加したカード情報・画像だけを含むJSONを保存し、標準カードはCSVから復元します。「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でユーザーが追加したカード情報・画像と、デッキ・盤面・メモを保存できます。標準カードの情報は含めず、読込時にCSVから復元します。標準カードに加えた編集や画像もJSONには含めません。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><section class="mobile-only" style="flex-direction:column"><h3>スマートフォンの操作</h3><p>画面下の「基本操作」「選択」「効果」「履歴」で操作欄を開き、「盤面」で戻ります。カードをタップしてから「選択」を開くと、移動や表裏の変更、内容の確認ができます。「複数選択」をオンにするとカードをまとめて選べます。山札・ログの「一覧」からも、1枚を選んで「内容を確認」を開けます。カードが多いゾーンは横にスワイプできます。</p></section><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>ローカルではフォルダ内のlaunch.batから起動してください。PC内のサーバーを経由して開き、default-cards.csvから標準カードを自動で読み込みます。CSVの取得以外にアプリから通信することはなく、データ保存・画像変換は端末内で行います。アカウントや外部APIは不要です。HTMLファイルを直接開いた以前の保存データは、その画面からJSON保存して、起動後の画面で読み込んでください。公式のカード画像やイラストは同梱していません。</p></div>`, "help")
+    openModal("使い方と試作版の範囲", `<div class="help-content"><h3>最初に</h3><p>本アプリは、参考画像の配置を再現した非公式の手動シミュレータです。左にカラーライン7枠、中央にフィールド・セット・チャンネル・ステージ、右に山札とログ、下に7色のにじエリアを用意しています。相手の全フィールドは向かい合う配置で、上ににじエリア、下にフィールド、右にカラーライン、左に山札とログを表示します。初期手札の枚数は任意設定です。カードの効果、合法手、勝敗をプレイヤーが判断してください。</p><h3>カードとデッキを用意する</h3><p>標準のカードは最初から登録されており、すぐにデッキを作れます。起動時にdefault-cards.csvを読み込み、同じIDの標準カードも名前・効果・レベルなどを最新内容へ更新します。空欄やタグ削除も反映し、登録済み画像とCSVにない独自カードは保持します。標準カードの追加・更新はdefault-cards.csvで行います。独自カードは「カード登録」で画像を追加するか、文字カードを手入力できます。文字カードにはIDを入力・編集できます。ライバー・イベント・ステージ・チャンネルにはカンマ区切りでタグを登録でき、空白と#を除いて保存します。タグは詳細画面と検索に使い、カードの表面には表示しません。文字カードの種別はライバー・イベント・ステージ・チャンネル、クラスは太陽・月・彗星・星から選べます。左上にレベル、右上にクラスの頭文字、ライバーカードの右下にパワーを表示します。ライバーは7色から複数の色を設定でき、レベルの下から左端に沿って鮮やかな色帯を縦に表示します。画像カードも登録画面から種別と色を設定できます。チャンネルカードにレベルはありません。未設定の項目は表示しません。カード登録の一覧にはユーザーが追加したカードだけを12種類ずつ表示し、検索・種別の絞り込みと「編集」から変更できます。標準カードはデッキ管理のカード一覧から使えます。「デッキ管理」の専用ページで名前付きのデッキを複数保存できます。左にカードの詳細、中央にチャンネルとデッキ、右に追加用カード一覧を表示します。保存は盤面を変更せず、編集画面は開いたままです。盤面の「デッキを選ぶ」から保存デッキを山札とチャンネルへ反映してください。カード登録は両ページで共有します。「画像出力」では、カード画像・名前・ID・枚数を1枚のPNGにまとめます。「TXT出力」でデッキ名・チャンネル・カードのID・名前・枚数・並び順をテキストに保存できます。「TXT読込」で確認後、新しいデッキとして編集できます。標準カード以外を使う場合は、先にそのカードを登録してください。チャンネルの選択肢にはチャンネルカードだけを表示し、山札用のカード一覧には含めません。名前・ID検索、種別・クラスの絞り込み、並べ替えができ、ページ移動後も入力した枚数を保持します。中央のデッキ欄には編集中のカードと枚数を表示し、枚数を直接変更できます。その下には色別枚数と「レベル分布（コストカーブ）」を表示します。レベルごとにカードの枚数を集計し、未設定は別に表示します。チャンネルは含めず、追加・削除・枚数入力に合わせて更新します。編集画面でブラウザの戻るを押すとデッキ一覧へ戻り、未保存なら保存・破棄・編集に戻るを選べます。チャンネルに指定したカードは山札に含めず、手札などから移すこともできません。山札を作り、操作側を選んで「枚をランダムに引き直す」を実行します。画像は長辺1200px以下に変換します。CSVの見出しはID・カード名・種別・クラス・レベル・パワー・色・タグ・限定・効果の10項目です。デッキ一覧画像の自動切り出しと文字認識は入っていません。</p><h3>盤面を操作する</h3><p>カードをクリックして選択し、ゾーンへドラッグするか、左の「選択」タブから移動します。「選択」と「履歴」の間の「効果」タブでは、選択したカードの効果を読めます。開いたまま別のカードを選ぶと表示が切り替わります。<kbd>Shift</kbd>＋クリックで複数選択。フィールド・手札などのカードや山札・ログの一覧内のカードは、ダブルクリックで内容を拡大確認します。盤面の山札・ログはダブルクリックすると一覧を開きます。山は先頭が一番上です。手札やフィールドなど、別のゾーンから盤面の山札へドラッグすると、山札の一番上に戻ります。カードを同じゾーン内でドラッグすると、離した位置に並べ替えます。同じ位置に戻したときは履歴やリプレイの操作数には加えません。山札の一覧ではドラッグか位置番号の入力で順番を変更できます。一覧や上から確認でカードの内容を開いたときは、画面上部の戻るボタンで元の画面に戻れます。横向きはカード内の回転表示と「横」表示で確認できます。セットへの移動は初期設定で裏向きになります。セット・ステージは各1枚までです。2枚目を置くと、元のカードを表向き・縦向きでログへ送ります。ログは最後に送ったカードが先頭です。PCでは手札・フィールド・山札・セット・チャンネル・ステージ・ログの見出しをカードの左側に置き、縦方向を詰めています。セット・チャンネル・ステージ・ログは同じ高さに揃えています。手札・山札・ログの枚数は見出しの下に表示し、フィールドとカラーラインの枚数は表示しません。プレイヤーのカウンターは盤面の枠外の右にA・＋・数値・−・B・＋・数値・−の順で縦1列に表示します。自分側は山札・ログの右、相手の全フィールドではカラーラインの右に置き、−／＋で増減できます。通常カードはチャンネル欄へドラッグするか、移動先の「チャンネルの下」で重ねられます。「下 ○枚」で一覧を開き、各カードの「ログへ」で1枚ずつ取り除けます。チャンネルを先に設定してください。カラーラインは上から順番に並びます。基本操作の「カラーカードの初期化」で、両側のカラーカードを裏向きで戻せます。「カラーカードのシャッフル」は、両者のカラーライン上にあるカラーカードの順番を、それぞれランダムに並べ替えます。表裏やにじエリアのカードはそのままで、「元に戻す」で取り消せます。以前の保存データにある旧ゾーンは削除し、中の通常カードをログへ移します。</p><h3>山札を調べる</h3><p>「上から確認」は、指定枚数を見せるだけで山札の順序を変えません。確認したカードを山札の下や別のゾーンへ移すと、そのカードを確認一覧から外します。表示枚数は減り、未確認のカードを追加で見せません。「山札の一覧」はPCでは50枚ずつ、スマートフォンでは24枚ずつ表示し、ページを移っても選択を保持します。一覧のカードを選択し、「自分／相手 の 手札／フィールド／フィールド（横）／セット／ステージ／ログ／チャンネルの下」から送り先を選んで「移動」を押します。「山札の下へ」も使えます。ログからは「ログ」を除く同じ移動先と、「山札の下へ」「山札の上へ」を使えます。チャンネルの下の一覧・詳細からも手札やフィールドなどへ移せますが、同じチャンネルの下への移動は選択肢に含めません。手札へ移すと表向き・縦向きになります。「自分／相手」は操作側を基準にし、山札の上下へのボタンは元のプレイヤーの山札へ戻します。ダブルクリックでめくって確認した画面でも同じ操作ができます。盤面の山札を選ぶと、枚数を指定してドロー・上から確認・上からログへ移動できます。複数枚は選んだ順に並びます。</p><h3>手動のまま残す部分</h3><p>コスト支払い、発動条件、効果の適用、処理順序、構築条件、通常カードの初期配置、ターン開始時処理、勝敗は自動判定しません。7色のカラーカードの初期配置と、デッキ編集で指定したチャンネル1枚を用意します。フェイズのボタンも表示だけを変更します。引き直しは確認表示を挟まず実行し、チャンネルとカラーカードを残して通常カードを山札に集めます。「元に戻す」で取り消せます。「フィールドをすべて縦向きにする」はフィールド内だけに適用します。「次へ」はターン表示を進め、フェイズをスタートに戻します。操作側は切り替えません。ライバーを選ぶとパワーを変更でき、同名の別カードには影響しません。「元のパワーに戻す」で登録値に戻せます。変更したパワー・カード上のカウンター・一時メモは通常の移動では残り、引き直しと初期盤面への復帰でリセットします。手札や山へ移すと縦向きになります。必要に応じてプレイヤーが状態を修正してください。</p><h3>一人回しと相手フィールド</h3><p>初期状態では自分の盤面と、相手のカラーライン・にじエリアを表示します。両側に赤・橙・黄・緑・青・藍・紫を各1枚、裏向きで用意します。カラーカードを選び、同じボタンで「表にする／裏にする」を切り替えられます。カラーライン上のカラーカードは、ダブルクリックでもその1枚の表裏を切り替えられます。「同じ色のにじエリアへ」で移動できます。「次へ」は自分のターン表示を進め、ドローなどの自動処理は行いません。左上の「相手の全フィールドを表示」を押すと、1台のPCで両方を操作できます。相手の全フィールドを表示しても「次へ」で操作側は変わりません。操作側は左側のプレイヤーボタンで切り替えます。相手をカラーだけの表示にすると、自分のターン操作に戻ります。相手のカラーライン・にじエリアは引き続き操作でき、他の相手カード・デッキ・カウンターも保持します。表示設定もJSON保存とブラウザ内保存に含めます。</p><p>相手を表示中は通常、操作側の手札だけを見せます。「両方の手札を表示する」で両方を見られます。一覧や拡大から相手の非公開カードも確認できるため、対戦相手から情報を保護する機能ではありません。通信対戦やCPU対戦は入っていません。</p><h3>初期盤面に戻す</h3><p>基本操作の「初期盤面に戻す」で、両側の山札とチャンネルを登録済みのデッキ設定から作り直し、7色をそれぞれのカラーラインに裏向きで戻します。手札・フィールド・セット・ステージ・ログ・にじエリアを空にし、カードのメモとカウンター、プレイヤーのカウンターもリセットします。ターン1のスタートフェイズに戻ります。カード登録、デッキ設定、相手の表示設定は残ります。手札はドローや引き直しで用意してください。「元に戻す」で直前の盤面に戻せます。</p><h3>リプレイを記録する</h3><p>盤面上部の「記録開始」を押して操作し、「記録終了」で完了します。最初の盤面と、その後のカード移動・表裏・縦横・カウンター・ターンなどを記録します。「再生」では一時停止、前後の操作への移動、再生位置を調整できます。「1ステップ」で操作ごとの時間を0.5〜5秒から選べます（初期値1.0秒）。実際の操作時間に関係なく、一定の間隔で進みます。再生中にフェイズが変わると、移動先のフェイズ名を自動でカットイン表示します。通常操作中や記録中には表示しません。山札の「上から確認」「すべて見る」や拡大確認も記録し、再生時にはその時に見たカードを、盤面に重なるカットインで表示します。カードの上に順番、下に名前を表示します。移動後も未確認のカードを追加で見せません。以前のリプレイも再生できますが、記録していなかった確認場面は表示できません。「操作に戻る」で再生前の盤面に戻ります。「リプレイ保存」ではユーザーが追加したカード情報・画像だけを含むJSONを保存し、標準カードはCSVから復元します。「リプレイ読込」で再生できます。通常のJSON保存と自動保存にもリプレイを含めます。1つの記録は200操作・100MBまでです。山札の確認と確認終了も操作数に含みます。画面動画・音声の録画ではなく、盤面操作の再現です。記録し直す前に、残すリプレイを保存してください。</p><h3>テキストカットイン</h3><p>記録中の「テキストカットイン」で、好きな文章を1ステップとして挟めます。記録後も再生位置を選び、「テキストを挿入」でその直後に追加できます。最初の盤面を選ぶと最初の操作の前に挿入します。文章は300文字まで、改行も可能です。テキストの場面では文章の編集と削除ができます。表示時間は「1ステップ」の設定に従い、最後のステップでは停止して表示を残します。カットインの「閉じる」は表示だけを隠し、記録の内容は残します。編集結果も自動保存・JSON保存に含めます。</p><h3>保存と巻き戻し</h3><p>ブラウザ内に自動保存を試みますが、ファイルの移動、別のブラウザ、保存領域の削除や制限によって復元できないことがあります。「JSON保存」でユーザーが追加したカード情報・画像と、デッキ・盤面・メモを保存できます。標準カードの情報は含めず、読込時にCSVから復元します。標準カードに加えた編集や画像もJSONには含めません。「読込」はそのファイルを復元します。履歴欄の「履歴を初期化」で、盤面を保ったまま履歴だけを消せます。元に戻す・やり直すは現在の起動中の直近80操作までです。操作ログは保存しますが、JSON読込後の履歴再生や巻き戻しには対応していません。</p><section class="mobile-only" style="flex-direction:column"><h3>スマートフォンの操作</h3><p>画面下の「基本操作」「選択」「効果」「履歴」で操作欄を開き、「盤面」で戻ります。カードをタップしてから「選択」を開くと、移動や表裏の変更、内容の確認ができます。「複数選択」をオンにするとカードをまとめて選べます。山札・ログの「一覧」からも、1枚を選んで「内容を確認」を開けます。カードが多いゾーンは横にスワイプできます。</p></section><h3>キー操作</h3><p><kbd>D</kbd> ドロー、<kbd>R</kbd> 向きを変更、<kbd>F</kbd> 表裏反転、<kbd>Ctrl</kbd>＋<kbd>Z</kbd> 元に戻す、<kbd>Ctrl</kbd>＋<kbd>X</kbd> やり直す、<kbd>Ctrl</kbd>＋<kbd>S</kbd> JSON保存。入力中やダイアログを開いている間は、盤面のキー操作を止めます。</p><h3>オフライン動作</h3><p>ローカルではフォルダ内のlaunch.batから起動してください。PC内のサーバーを経由して開き、default-cards.csvから標準カードを自動で読み込みます。CSVの取得以外にアプリから通信することはなく、データ保存・画像変換は端末内で行います。アカウントや外部APIは不要です。HTMLファイルを直接開いた以前の保存データは、その画面からJSON保存して、起動後の画面で読み込んでください。公式のカード画像やイラストは同梱していません。</p></div>`, "help")
 }
 function checkState(candidate, images, deep = false) {
     const object = value => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -2981,9 +2558,10 @@ function checkState(candidate, images, deep = false) {
         require(item.power === undefined || item.power === null || number(item.power, 0, 999999), "Invalid card power.")
         require(item.colors === undefined || (Array.isArray(item.colors) && item.colors.length <= 7 && item.colors.every(color => nijiColors.includes(color)) && new Set(item.colors).size === item.colors.length), "Invalid liver card colors.")
         require(item.tags === undefined || validCardTags(item.tags), "Invalid card tags.")
+        require(item.restriction === undefined || validCardRestriction(item.restriction), "Invalid card restriction.")
         require(item.sourceCardKey === undefined || (typeof item.sourceCardKey === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(item.sourceCardKey) && !["__proto__", "constructor", "prototype"].includes(item.sourceCardKey)), "Invalid source card key.")
         if (isColorDefinition(item)) {
-            require(["cost", "className", "cardType", "isLiver", "power", "colors", "tags", "sourceCardKey"].every(key => item[key] === undefined), "Color cards cannot define text card details.")
+            require(["cost", "className", "cardType", "isLiver", "power", "colors", "tags", "restriction", "sourceCardKey"].every(key => item[key] === undefined), "Color cards cannot define text card details.")
             require(nijiColors.includes(item.color) && !definedColors.has(item.color), "Invalid or duplicate color definition.")
             definedColors.add(item.color)
         } else require(item.color === undefined, "Only color cards may define a color.")
@@ -3258,19 +2836,6 @@ function handleAction(button) {
     }
     if (handleCatalogAction(action, button) || handleDeckEditorAction(action, button) || handleInspectorAction(action, button)) return
     if (action === "catalog") showCatalog()
-    else if (action === "card-library") showCardLibrary()
-    else if (action === "pick-card-library") byId("cardLibraryPicker").click()
-    else if (action === "library-register") registerLibraryCards()
-    else if (action === "library-effect") toggleLibraryEffect(button.dataset.libraryKey)
-    else if (action === "library-clear") {libraryUi.selected.clear(); renderLibraryResults()}
-    else if (action === "library-page") {libraryUi.page += integer(button.dataset.delta, -1, 1, 0); renderLibraryResults()}
-    else if (action === "library-select-page") {
-        const registered = registeredLibraryDefinitions()
-        for (const card of filteredLibraryCards().slice(libraryUi.page * libraryPageSize, (libraryUi.page + 1) * libraryPageSize)) {
-            if (isLibraryCardEligible(card, registered)) libraryUi.selected.add(card.key)
-        }
-        renderLibraryResults()
-    }
     else if (action === "deck-editor") showSavedDeckSelector(button.dataset.player || state.active)
     else if (action === "settings") showSettings()
     else if (action === "help") showHelp()
@@ -3498,7 +3063,7 @@ document.addEventListener("input", event => {
     else if (element.id === "peekCount") ui.peekCount = integer(element.value, 1, 500)
     else if (["drawCount", "peekCount", "discardCount"].includes(element.dataset.deckCount)) ui[element.dataset.deckCount] = integer(element.value, 1, 500)
     else if (element.id === "initialCount") ui.initialCount = integer(element.value, 0, 500, 0)
-    else if (element.id === "librarySearch") {libraryUi.query = element.value; libraryUi.page = 0; renderLibraryResults()}
+
 })
 document.addEventListener("change", event => {
     const element = event.target
@@ -3506,13 +3071,6 @@ document.addEventListener("change", event => {
     if (element.id === "replayStepSeconds") {setReplayStepSeconds(element.value); return}
     if (replay.mode === "replay") return
     if (handleDeckManagerChange(element) || handleCatalogChange(element) || handleDeckEditorChange(element)) return
-    if (element.id === "libraryType" || element.id === "libraryClass") {
-        libraryUi[element.id === "libraryType" ? "cardType" : "className"] = element.value
-        libraryUi.page = 0
-        renderLibraryResults()
-        return
-    }
-    if (element.dataset.libraryKey) {selectLibraryCard(element.dataset.libraryKey, element.checked); return}
     if (element.id === "bothHands") {ui.bothHands = element.checked
         captureReplayFrame("手札の表示を変更")
         if (replay.recording) scheduleSave()
@@ -3579,11 +3137,6 @@ byId("statePicker").addEventListener("change", async event => {
     const file = event.target.files[0]
     event.target.value = ""
     await readStateFile(file)
-})
-byId("cardLibraryPicker").addEventListener("change", async event => {
-    const file = event.target.files[0]
-    event.target.value = ""
-    await readCardLibraryFile(file)
 })
 byId("replayPicker").addEventListener("change", async event => {
     const file = event.target.files[0]

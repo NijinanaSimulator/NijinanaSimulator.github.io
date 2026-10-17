@@ -152,3 +152,10 @@ dialog:has(.dm-leave-confirm){width:min(570px,94vw)}
 .dm-cost-track{display:flex;align-items:flex-end;height:72px;border-bottom:1px solid #b6cbdc;border-radius:3px 3px 0 0;background:#eff5fa;overflow:hidden}
 .dm-cost-fill{display:block;width:100%;background:linear-gradient(#8bb4d1,#426d8d);border-radius:3px 3px 0 0}
 .dm-cost-label{margin-top:3px;color:#42627b;font-size:11px;line-height:17px;white-space:nowrap}
+
+.dm-channel-heading{display:flex;align-items:center;flex-wrap:wrap;gap:7px 12px;min-width:0}
+.dm-channel-heading h3{flex:0 0 auto}
+.dm-channel-filter{display:inline-flex;align-items:center;gap:5px;color:#45647c;font-size:12px;line-height:1.4;font-weight:400;cursor:pointer}
+.dm-channel-filter input{width:14px;height:14px;flex:0 0 auto;margin:0;accent-color:#527da0}
+.dm-detail-restriction{margin:7px 0 0;color:#45647c;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+@media(max-width:1020px){.dm-detail-restriction{grid-column:2}}
