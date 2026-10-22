@@ -820,3 +820,20 @@ body[data-page="deck"]{padding-bottom:0}
 
 .card-detail-restriction{margin:10px 0;color:#45647c;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
 .pending-card-image{display:block;width:100%;height:100%;pointer-events:none}
+
+/* Channel frames keep their landscape shape in every shared card view. */
+.card-channel{width:104px;height:72px;aspect-ratio:91 / 63}
+.selected-preview .card.card-channel{width:101px;height:70px;flex-shrink:0}
+.inspect-item .card.card-channel{height:auto;aspect-ratio:91 / 63}
+.selected-preview .card.card-channel .card-symbol,.inspect-item .card.card-channel .card-symbol{display:none}
+.selected-preview .card.card-channel .card-body.text-card-face:has(.text-card-stat),.inspect-item .card.card-channel .card-body.text-card-face:has(.text-card-stat){padding:20px 6px 6px;gap:0}
+.big-preview .card.card-channel{height:auto;aspect-ratio:91 / 63}
+.big-preview .card.card-channel img{height:100%;max-height:none}
+.big-preview .card.card-channel .card-body{min-height:0}
+.big-preview .card.card-channel .card-body.text-card-face:has(.text-card-stat){padding:48px 22px 24px;gap:10px}
+.big-preview .card.card-channel .card-symbol{display:none}
+.replay-inspection-face.card-channel{width:100%;height:auto;aspect-ratio:91 / 63}
+.replay-inspection-face.card-channel .replay-inspection-text{padding:24px 6px 6px;gap:4px}
+.replay-inspection-face.card-channel .card-symbol{display:none}
+.replay-inspection-face.card-channel .text-card-name{-webkit-line-clamp:2;max-height:3em}
+.mini-card.mini-card-channel{height:auto;aspect-ratio:91 / 63}

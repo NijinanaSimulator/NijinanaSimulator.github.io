@@ -166,3 +166,11 @@ dialog:has(.dm-leave-confirm){width:min(570px,94vw)}
 .dm-catalog-card .dm-card-face :is(.liver-image-cost,.liver-image-power){font-size:10px}
 @media(max-width:1020px){.dm-detail-image .dm-card-face :is(.liver-image-cost,.liver-image-power){font-size:14px;min-width:24px;min-height:22px;padding:2px 4px}.dm-detail-image .dm-card-face .liver-image-power{font-size:13px}}
 @media(max-width:760px){.dm-detail-image .dm-card-face :is(.liver-image-cost,.liver-image-power){font-size:12px;min-width:20px;min-height:18px;padding:1px 3px}}
+
+/* Keep channel frames horizontal across every deck-editor size. */
+.dm-card-face.card-channel,.dm-select-card .dm-card-face.card-channel,.dm-detail-image .dm-card-face.card-channel,.dm-channel-card .dm-card-face.card-channel,.dm-cover .dm-card-face.card-channel{height:auto;min-height:0;aspect-ratio:91 / 63}
+
+.dm-card-face.card-channel .card-symbol{display:none}
+.dm-card-face.card-channel .card-body.text-card-face{min-height:0;padding:18px 5px 5px;gap:0}
+.dm-card-face.card-channel .text-card-face>.text-card-name{-webkit-line-clamp:1;max-height:1.6em}
+.dm-detail-image .dm-card-face.card-channel .text-card-name,.dm-channel-card .dm-card-face.card-channel .text-card-name{-webkit-line-clamp:2;max-height:3.2em}

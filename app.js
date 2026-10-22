@@ -765,7 +765,7 @@ function replayInspectionHTML(inspection) {
         const item = card ? displayCardDefinition(id) : undefined
         const name = item?.name || "カード"
         const face = cardFaceHTML(item || {name}, {textClass: "replay-inspection-text", powerOverride: card?.powerOverride})
-        return `<figure class="replay-inspection-card"><span class="replay-inspection-order">${start + index + 1}${id === topCard ? " / 先頭" : ""}</span><div class="replay-inspection-face">${face}</div><figcaption>${escapeHTML(name)}</figcaption></figure>`
+        return `<figure class="replay-inspection-card"><span class="replay-inspection-order">${start + index + 1}${id === topCard ? " / 先頭" : ""}</span><div class="replay-inspection-face ${item && textCardType(item) === "channel" ? "card-channel" : ""}">${face}</div><figcaption>${escapeHTML(name)}</figcaption></figure>`
     }).join("")
     const pagination = pages > 1 ? `<div class="replay-inspection-pagination"><span class="replay-inspection-range">${start + 1}〜${Math.min(start + replayInspectionPageSize, inspection.cards.length)}枚目 / 全${inspection.cards.length}枚</span><button class="small" data-action="replay-inspection-prev" ${replayInspectionUi.page === 0 ? "disabled" : ""}>前へ</button><span>${replayInspectionUi.page + 1} / ${pages}</span><button class="small" data-action="replay-inspection-next" ${replayInspectionUi.page + 1 >= pages ? "disabled" : ""}>次へ</button></div>` : ""
     return `<section class="replay-inspection" aria-label="山札で確認したカード"><div class="replay-inspection-heading"><strong>山札で確認したカード</strong><span>${escapeHTML(playerName)} · ${kindLabel} · ${inspection.cards.length}枚</span>${inspection.cards.length ? `<span class="replay-inspection-direction">${inspection.cards[start] === topCard ? "左が先頭" : "左から順に表示"}</span>` : ""}</div>${cards ? `<div class="replay-inspection-cards">${cards}</div>` : `<p class="replay-inspection-empty">確認したカードはすべて移動しました。</p>`}${pagination}</section>`
@@ -1567,13 +1567,13 @@ function cardHTML(id, options = {}) {
     const hidden = options.forceHidden || (!options.reveal && !visible(id, place))
     const color = colorForCard(id)
     const rotated = card.rotated && !options.preview && place?.zone !== "hand"
-    const classes = ["card", color ? "color-card" : "", !color && !hidden && !cardImageURL(item) ? "text-card" : "", color && !hidden ? `color-${color.toLowerCase()}` : "", hidden ? "face-down" : "", rotated ? "rotated" : "", ui.selection.has(id) && !options.preview ? "selected" : ""].filter(Boolean).join(" ")
+    const classes = ["card", !color && textCardType(item) === "channel" ? "card-channel" : "", color ? "color-card" : "", !color && !hidden && !cardImageURL(item) ? "text-card" : "", color && !hidden ? `color-${color.toLowerCase()}` : "", hidden ? "face-down" : "", rotated ? "rotated" : "", ui.selection.has(id) && !options.preview ? "selected" : ""].filter(Boolean).join(" ")
     const title = hidden ? color ? "裏向きのカラーカード" : "裏向きのカード" : item.name
     let content = hidden ? `<span class="back-mark">7</span>` : color ? "" : cardFaceHTML(item, {powerOverride: card.powerOverride, loading: options.preview ? "eager" : "lazy"})
     if (color && !hidden) content = `<span class="color-face"><small>COLOR</small><strong>${color}</strong><span>${escapeHTML(colorNames[color])}</span></span>`
     if (!options.preview) {
         if (card.counter) content += `<span class="counter-badge">${card.counter}</span>`
-        if (rotated) content += `<span class="rotated-label">横</span>`
+        if (rotated && place?.zone !== "field") content += `<span class="rotated-label">横</span>`
         if (card.note) content += `<span class="note-badge"></span>`
     }
     if (options.preview) return `<div class="${classes}">${content}</div>`
@@ -1887,7 +1887,8 @@ function handleInspectorAction(action, button) {
 
 // ZONE_INSPECTOR_UI_END
 function miniature(item) {
-    return cardImageContentHTML(item, `<span class="mini-card">◇</span>`, source => `<img class="mini-card" ${source ? `src="${escapeHTML(source)}"` : ""} alt="" draggable="false" loading="lazy" decoding="async">`, "mini-card", "◇")
+    const classes = `mini-card${textCardType(item) === "channel" ? " mini-card-channel" : ""}`
+    return cardImageContentHTML(item, `<span class="${classes}">◇</span>`, source => `<img class="${classes}" ${source ? `src="${escapeHTML(source)}"` : ""} alt="" draggable="false" loading="lazy" decoding="async">`, classes, "◇")
 }
 // CATALOG_UI_START
 const catalogUi = {query: "", cardType: "", page: 0, editing: ""}
