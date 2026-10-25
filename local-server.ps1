@@ -21,6 +21,8 @@ $publicFiles = @{
     '/deck-storage.js' = 'text/javascript; charset=utf-8'
     '/json-export.js' = 'text/javascript; charset=utf-8'
     '/deck-txt.js' = 'text/javascript; charset=utf-8'
+    '/deck-color-value.js' = 'text/javascript; charset=utf-8'
+    '/deck-color-value-ui.js' = 'text/javascript; charset=utf-8'
     '/deck-manager.js' = 'text/javascript; charset=utf-8'
     '/app.css' = 'text/css; charset=utf-8'
     '/deck-manager.css' = 'text/css; charset=utf-8'
