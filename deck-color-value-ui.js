@@ -65,13 +65,22 @@ function deckManagerColorValueHTML() {
     }
     return `<circle class="${className}" ${values} cx="${centerX}" cy="${centerY}" r="2.4">${title}</circle>`;
   }).join('')).join('');
-  const total = 7 + points.reduce((sum, point) => sum + point.average, 0);
+  const totals = [
+    { key: 'minimum', subscript: 'min', label: '最低線' },
+    { key: 'average', subscript: '', label: '平均線' },
+    { key: 'maximum', subscript: 'max', label: '最高線' },
+  ].map(item => {
+    const total = 7 + points.reduce((sum, point) => sum + point[item.key], 0);
+    const symbol = `<span class="dm-color-value-total-symbol"><var>L</var>${item.subscript ? `<sub>${item.subscript}</sub>` : ''}</span>`;
+    const title = `L${item.subscript ? `_${item.subscript}` : ''} = 7＋${item.label}の合計（残り7～1枚）`;
+    return `<span class="dm-color-value-total-item" data-color-value-total="${item.key}" title="${escapeHTML(title)}">${symbol}<span>= ${formatValue(total)}</span></span>`;
+  }).join('');
   return `<div class="dm-color-value-plot"><svg class="dm-color-value-chart" viewBox="0 0 ${width} 200" role="img" aria-label="裏枚数7枚から1枚までの、裏を表にする価値の最高・最低・平均。各点にカーソルを合わせると数値を確認できます。">
       <title>裏の色を表にする価値の推移</title>
       <desc>縦軸は表のカードをにじエリアに送る価値を1点とした評価値、横軸は残りの裏枚数です。残り1枚ではすべて0点になります。</desc>
       ${grid}<line class="dm-color-value-axis" x1="${left}" x2="${right}" y1="${bottom}" y2="${bottom}"/>
       ${lines}${markers}${ticks}
-    </svg></div><div class="dm-color-value-total" title="L = 7＋平均線の合計（残り7～1枚）">L = ${formatValue(total)}</div>`;
+    </svg></div><div class="dm-color-value-total">${totals}</div>`;
 }
 
 // Keep one observer and one current plot across full renders and quantity edits.

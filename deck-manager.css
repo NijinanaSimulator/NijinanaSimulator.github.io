@@ -192,7 +192,11 @@ dialog:has(.dm-leave-confirm){width:min(570px,94vw)}
 .dm-color-value-grid{stroke:#dfe8ef;stroke-width:1}
 .dm-color-value-axis{stroke:#a9c0d1;stroke-width:1}
 .dm-color-value-tick{fill:#526d82;font-size:14px;font-weight:400;font-variant-numeric:tabular-nums}
-.dm-color-value-total{margin-top:auto;padding-top:3px;padding-bottom:2px;text-align:center;color:#526d82;font-size:14px;font-weight:400;font-variant-numeric:tabular-nums;line-height:19px}
+.dm-color-value-total{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:3px 6px;margin-top:auto;padding-top:3px;padding-bottom:2px;text-align:center;color:#526d82;font-size:14px;font-weight:400;font-variant-numeric:tabular-nums;line-height:19px}
+.dm-color-value-total-item{display:inline-flex;align-items:baseline;gap:3px;white-space:nowrap}
+.dm-color-value-total-symbol{font-family:"STIX Two Math","Cambria Math","Times New Roman",serif;font-size:1.1em;white-space:nowrap}
+.dm-color-value-total-symbol var{font-style:italic;font-weight:400}
+.dm-color-value-total-symbol sub{font-size:.7em;font-style:normal;line-height:0;vertical-align:sub}
 .dm-color-value-line{fill:none;stroke-width:2;stroke-linejoin:round}
 .dm-color-value-line.dm-color-value-minimum{stroke-width:3;stroke-dasharray:2 4}
 .dm-color-value-line.dm-color-value-average{stroke-width:1.8;stroke-dasharray:7 4}
