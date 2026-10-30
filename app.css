@@ -45,12 +45,14 @@ aside.sidebar{background:#fff;border:1px solid var(--line);border-radius:11px;al
 .control-row label{flex:1}
 .control-row .grow{flex:1}
 .control-row button{font-size:12px}
+.player-deck-control{flex-wrap:nowrap;gap:5px;margin-top:5px}
+.player-deck-control>label{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:1.4}
+.player-deck-control>input[type=number]{flex:0 0 46px;width:46px;min-width:0;padding:5px 3px;font-size:12px;line-height:1.4}
+.player-deck-control>button.grow{flex:0 0 82px;min-width:0;padding:5px 4px;font-size:11px;line-height:1.5;white-space:nowrap}
 .board-controls{display:flex;flex-direction:column;gap:8px}
 .board-controls>h3{margin-bottom:0}
 .board-controls>.control-row{margin-top:0;flex-wrap:nowrap}
 .board-controls>button{font-size:11px}
-.board-controls #initialCount{width:48px;min-width:0}
-.board-controls [data-action="redeal"]{padding-left:5px;padding-right:5px;font-size:11px}
 .history-toolbar{margin-bottom:12px}
 .full{width:100%}
 .help-note{font-size:11px;color:#64788b;line-height:1.8;margin-top:9px}
@@ -759,7 +761,13 @@ body[data-page="deck"]{padding-bottom:0}
 .channel-card-stack{position:relative;width:139px;height:99px;flex:0 0 auto}
 .channel-stack-layer{position:absolute;left:var(--stack-offset);top:var(--stack-offset);width:130px;height:90px;border:1px solid #9cb6ca;border-radius:6px;background:#f8fbff;box-shadow:0 1px 3px #35557520;pointer-events:none}
 .channel-stack-front{position:relative;z-index:4;display:flex}
-.channel-under-count{position:absolute;right:0;bottom:0;z-index:5;padding:2px 7px;font-size:11px;line-height:1.4;border-color:#aac4d8;background:#eef6fc;color:#355c78;box-shadow:0 1px 4px #35557518}
+.stage-card-stack{width:81px;height:104px}
+.stage-card-stack .channel-stack-layer{top:0;width:72px;height:104px}
+.zone:is(.zone-channel,.zone-stage){position:relative}
+.channel-under-count{position:absolute;right:4px;bottom:3px;z-index:5;min-width:58px;min-height:24px;max-width:calc(100% - 8px);padding:3px 7px;border-radius:5px;font-size:11px;font-weight:600;line-height:1.4;white-space:nowrap;border-color:#9dbbd1;background:#eef6fc;color:#355c78;box-shadow:0 1px 4px #35557518;cursor:pointer;transition:border-color .12s,background .12s,box-shadow .12s}
+.channel-under-count:hover{border-color:#699abe;background:#e2f0fb;color:#254e70}
+.channel-under-count:focus-visible{outline:2px solid #3f8bbd;outline-offset:1px}
+.channel-under-count.drag-over{border-color:#287eb7;background:#d8ecfb;color:#194d74;outline:2px solid #3f8bbd;outline-offset:1px;box-shadow:0 0 0 4px #dcedf9,0 2px 5px #35557525}
 
 /* Keep zone labels clear and fit cards closely inside the desktop board. */
 .sidebar .tabs{padding:3px 6px 0;gap:1px}
