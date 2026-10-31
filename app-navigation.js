@@ -25,7 +25,6 @@ if (appRootEntry && location.hash === '#deck') {
     document.body.dataset.page = 'deck'
     document.title = 'デッキ管理 | NijinanaSimulator'
     document.querySelector('.header-actions').innerHTML = `<a class="app-link" href="${appRootURL()}">シミュレーターへ</a><button data-action="catalog">カード登録</button><button data-action="save">JSON保存</button><button data-action="load">読込</button>`
-    document.querySelector('.subbar > span').textContent = 'デッキ管理'
     for (const selector of ['.layout', '.mobile-panel-backdrop', '#mobileNav', '#replayCutIn']) document.querySelector(selector)?.remove()
     const root = document.createElement('main')
     root.id = 'deckPage'; root.className = 'deck-page'; root.setAttribute('aria-label', 'デッキ管理')
