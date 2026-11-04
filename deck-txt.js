@@ -128,6 +128,9 @@ function parseDeckText(text, catalog) {
         deckTextRequire(total <= 500, 'デッキは500枚までです。', line)
         const definition = parseIdentity(fields, line, false)
         if (!definition) continue
+        if (catalog[definition].irisOne === true && (entries.get(definition)?.count ?? 0) + count > deckCardCountLimit(catalog, list, definition)) {
+            issues.push({line, message: 'アイリスワンはデッキに合計1枚までです。'})
+        }
         if (entries.has(definition)) entries.get(definition).count += count
         else {const entry = {definition, count}; entries.set(definition, entry); list.push(entry)}
     }

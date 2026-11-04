@@ -258,7 +258,9 @@ async function saveNamedDeck(deck) {
                 if (existing) next.createdAt = existing.createdAt
                 next.name = uniqueSavedDeckName(next.name, decks, next.id)
                 const all = decks.filter(item => item.id !== next.id).concat(next)
-                validateSavedDecks(all, Object.fromEntries(keys.map((key, index) => [key, values[index]])))
+                const catalog = Object.fromEntries(keys.map((key, index) => [key, values[index]]))
+                validateSavedDecks(all, catalog)
+                validateIrisOneDeck(catalog, next.list)
                 transaction.objectStore("decks").put(next, next.id)
             } catch (error) {operationError = error; transaction.abort()}
         }

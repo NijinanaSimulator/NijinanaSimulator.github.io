@@ -51,6 +51,17 @@ function deckManagerCardSummary(item){
  if(type==='liver'&&item.power!==null&&item.power!==undefined)parts.push(`パワー ${item.power}`)
  return parts.join(' · ')
 }
+function deckManagerIrisOneBadge(item){
+ return item.irisOne===true?'<span class="dm-iris-one-badge" title="デッキに合計1枚まで">アイリスワン</span>':''
+}
+function deckManagerTileNameHTML(item){
+ const name=`<span class="dm-card-name">${escapeHTML(item.name)}</span>`
+ if(item.irisOne!==true)return name
+ return `<span class="dm-card-name-row">${name}<span class="dm-iris-one-badge dm-iris-one-badge-compact" title="アイリスワン（デッキに合計1枚まで）" aria-hidden="true">IO</span></span>`
+}
+function deckManagerCanAdd(id,count){
+ return state.catalog[id].irisOne!==true||count<deckCardCountLimit(state.catalog,deckManager.draft.list,id)
+}
 function deckManagerCoverHTML(deck){
  const cards=(deck.list||[]).filter(item=>deckManagerMain(item.definition)).slice(0,3).map((entry,i)=>`<span class="dm-cover-card dm-cover-card-${i}">${deckDefinitionFaceHTML(entry.definition)}</span>`).join('')
  const channel=deckManagerChannel(deck.channelDefinition)?`<span class="dm-cover-channel">${deckDefinitionFaceHTML(deck.channelDefinition)}</span>`:''
@@ -109,7 +120,7 @@ function deckManagerDetailHTML(){
  if(!item)return '<div class="dm-detail-empty"><span aria-hidden="true">◇</span><strong>カードを選択</strong><p>カードの内容をここに表示します。</p></div>'
  const channel=textCardType(item)==='channel',quantity=channel?Number(draft.channelDefinition===id):draft.list.find(entry=>entry.definition===id)?.count||0
  const colors=Array.isArray(item.colors)?item.colors.map(color=>`<span class="dm-color-dot dm-color-${color.toLowerCase()}" title="${deckManagerColorNames[color]||color}" aria-label="${deckManagerColorNames[color]||color}"></span>`).join(''):''
- return `<div class="dm-detail-heading"><strong>${escapeHTML(item.name)}</strong>${item.sourceCardKey?`<span class="dm-detail-id">ID: ${escapeHTML(item.sourceCardKey)}</span>`:''}</div><div class="dm-detail-image ${channel?'dm-detail-channel':''}">${deckDefinitionFaceHTML(item)}</div><p class="dm-detail-summary">${escapeHTML(deckManagerCardSummary(item))}</p>${cardTagsHTML(item,'dm-detail-tags')}${cardRestrictionHTML(item,'dm-detail-restriction')}${colors?`<div class="dm-detail-colors">${colors}</div>`:''}<div class="dm-detail-actions">${channel?`<button data-action="manager-set-channel" data-definition="${escapeHTML(id)}" class="primary">${quantity?'選択中のチャンネル':'チャンネルに設定'}</button>${quantity?'<button data-action="manager-clear-channel">チャンネルを外す</button>':''}`:`<button data-action="manager-minus" data-definition="${escapeHTML(id)}" ${quantity?'':'disabled'}>−1</button><span>${quantity}枚</span><button data-action="manager-plus" data-definition="${escapeHTML(id)}" class="primary">＋1</button>`}</div><div class="dm-detail-effect"><h3>効果・説明</h3><p>${escapeHTML(item.text||'効果・説明は未登録です。')}</p></div>`
+ return `<div class="dm-detail-heading"><strong>${escapeHTML(item.name)}</strong>${item.sourceCardKey?`<span class="dm-detail-id">ID: ${escapeHTML(item.sourceCardKey)}</span>`:''}${deckManagerIrisOneBadge(item)}</div><div class="dm-detail-image ${channel?'dm-detail-channel':''}">${deckDefinitionFaceHTML(item)}</div><p class="dm-detail-summary">${escapeHTML(deckManagerCardSummary(item))}</p>${cardTagsHTML(item,'dm-detail-tags')}${cardRestrictionHTML(item,'dm-detail-restriction')}${colors?`<div class="dm-detail-colors">${colors}</div>`:''}<div class="dm-detail-actions">${channel?`<button data-action="manager-set-channel" data-definition="${escapeHTML(id)}" class="primary">${quantity?'選択中のチャンネル':'チャンネルに設定'}</button>${quantity?'<button data-action="manager-clear-channel">チャンネルを外す</button>':''}`:`<button data-action="manager-minus" data-definition="${escapeHTML(id)}" ${quantity?'':'disabled'}>−1</button><span>${quantity}枚</span><button data-action="manager-plus" data-definition="${escapeHTML(id)}" class="primary" ${deckManagerCanAdd(id,quantity)?'':'disabled'}>＋1</button>`}</div><div class="dm-detail-effect"><h3>効果・説明</h3><p>${escapeHTML(item.text||'効果・説明は未登録です。')}</p></div>`
 }
 function deckManagerColorCountsHTML(){
  const counts=Object.fromEntries(nijiColors.map(color=>[color,0]))
@@ -143,7 +154,8 @@ function deckManagerDeckContentsHTML(){
  const draft=deckManager.draft,channel=deckManagerChannel(draft.channelDefinition)?state.catalog[draft.channelDefinition]:null,entries=draft.list.filter(entry=>deckManagerMain(entry.definition)&&entry.count>0)
  const tiles=entries.map(entry=>{
   const item=state.catalog[entry.definition],id=escapeHTML(entry.definition)
-  return `<article class="dm-included-card ${deckManager.selected===entry.definition?'is-selected':''}" data-manager-entry="${id}"><button class="dm-select-card" draggable="true" data-manager-drag-definition="${id}" data-manager-drag-origin="deck" data-action="manager-select" data-definition="${id}" aria-label="${escapeHTML(item.name)}の内容">${deckDefinitionFaceHTML(item)}<span class="dm-card-name">${escapeHTML(item.name)}</span></button><div class="dm-quantity"><button data-action="manager-minus" data-definition="${id}" aria-label="${escapeHTML(item.name)}を1枚減らす">−</button><input data-manager-quantity="${id}" type="number" min="0" max="500" value="${entry.count}" aria-label="${escapeHTML(item.name)}の枚数"><button data-action="manager-plus" data-definition="${id}" aria-label="${escapeHTML(item.name)}を1枚増やす">＋</button></div></article>`
+  const limit=deckCardCountLimit(state.catalog,draft.list,entry.definition)
+  return `<article class="dm-included-card ${deckManager.selected===entry.definition?'is-selected':''}" data-manager-entry="${id}"><button class="dm-select-card" draggable="true" data-manager-drag-definition="${id}" data-manager-drag-origin="deck" data-action="manager-select" data-definition="${id}" aria-label="${escapeHTML(item.name)}の内容${item.irisOne===true?'（アイリスワン）':''}">${deckDefinitionFaceHTML(item)}${deckManagerTileNameHTML(item)}</button><div class="dm-quantity"><button data-action="manager-minus" data-definition="${id}" aria-label="${escapeHTML(item.name)}を1枚減らす">−</button><input data-manager-quantity="${id}" type="number" min="0" max="${limit}" value="${entry.count}" aria-label="${escapeHTML(item.name)}の枚数"><button data-action="manager-plus" data-definition="${id}" aria-label="${escapeHTML(item.name)}を1枚増やす" ${deckManagerCanAdd(entry.definition,entry.count)?'':'disabled'}>＋</button></div></article>`
  }).join('')
  return `<section class="dm-channel-section" data-manager-drop="channel"><div class="dm-section-heading"><div class="dm-channel-heading"><h3>チャンネル</h3><label class="dm-channel-filter"><input id="managerChannelOnly" type="checkbox" ${deckManager.channelOnly?'checked':''}><span>入れられるカードのみを表示</span></label></div><button class="small" data-action="manager-channel-mode">${channel?'変更':'選ぶ'}</button></div>${channel?`<div class="dm-channel-selection"><button data-action="manager-select" data-definition="${escapeHTML(draft.channelDefinition)}" draggable="true" data-manager-drag-definition="${escapeHTML(draft.channelDefinition)}" data-manager-drag-origin="channel" class="dm-channel-card">${deckDefinitionFaceHTML(channel)}</button><div><strong>${escapeHTML(channel.name)}</strong>${channel.sourceCardKey?`<small>ID: ${escapeHTML(channel.sourceCardKey)}</small>`:''}<button class="small" data-action="manager-clear-channel">外す</button></div></div>`:'<button class="dm-channel-empty" data-action="manager-channel-mode"><span>＋</span> チャンネルを選択</button>'}</section><section class="dm-main-section" data-manager-drop="main"><div class="dm-section-heading"><h3>デッキ <span>${deckManagerTotal(draft)}枚</span></h3><span>${entries.length}種類</span></div><div class="dm-deck-grid">${tiles||'<div class="dm-deck-empty"><span aria-hidden="true">＋</span><p>右のカード一覧から、カードを追加してください。</p></div>'}</div><div class="dm-deck-analytics"><div class="dm-deck-distributions"><section class="dm-color-distribution" aria-label="色分布"><h3>色分布</h3><div id="managerColorCounts" class="dm-deck-color-counts" role="list" aria-label="デッキ内の色別枚数">${deckManagerColorCountsHTML()}</div></section><section id="managerCostCurve" class="dm-cost-curve" aria-label="レベル分布">${deckManagerCostCurveHTML()}</section></div><section id="managerColorValueCurve" class="dm-color-value-curve" aria-label="裏の色を表にする価値">${deckManagerColorValueHTML()}</section></div></section>`
 }
@@ -166,7 +178,7 @@ function deckManagerCatalogHTML(){
  const entries=deckManagerFilteredCatalog(),pages=Math.max(1,Math.ceil(entries.length/deckManagerPageSize));deckManager.page=Math.max(0,Math.min(pages-1,deckManager.page));const start=deckManager.page*deckManagerPageSize
  const tiles=entries.slice(start,start+deckManagerPageSize).map(([id,item])=>{
   const quantity=deckManager.catalogMode==='channel'?Number(deckManager.draft.channelDefinition===id):deckManager.draft.list.find(entry=>entry.definition===id)?.count||0
-  return `<article class="dm-catalog-card ${deckManager.selected===id?'is-selected':''}"><button class="dm-select-card" draggable="true" data-manager-drag-definition="${escapeHTML(id)}" data-action="manager-select" data-definition="${escapeHTML(id)}" aria-label="${escapeHTML(item.name)}の内容">${deckDefinitionFaceHTML(item)}<span class="dm-card-name">${escapeHTML(item.name)}</span>${item.sourceCardKey?`<small class="dm-card-id">${escapeHTML(item.sourceCardKey)}</small>`:''}</button><div class="dm-catalog-card-footer">${deckManager.catalogMode==='channel'?`<button class="small ${quantity?'dm-added':''}" data-action="manager-set-channel" data-definition="${escapeHTML(id)}">${quantity?'選択中':'設定'}</button>`:`<button class="small" data-action="manager-minus" data-definition="${escapeHTML(id)}" aria-label="${escapeHTML(item.name)}を1枚減らす" ${quantity?'':'disabled'}>−</button><span>${quantity}枚</span><button class="small" data-action="manager-plus" data-definition="${escapeHTML(id)}" aria-label="${escapeHTML(item.name)}を1枚追加">＋</button>`}</div></article>`
+  return `<article class="dm-catalog-card ${deckManager.selected===id?'is-selected':''}"><button class="dm-select-card" draggable="true" data-manager-drag-definition="${escapeHTML(id)}" data-action="manager-select" data-definition="${escapeHTML(id)}" aria-label="${escapeHTML(item.name)}の内容${item.irisOne===true?'（アイリスワン）':''}">${deckDefinitionFaceHTML(item)}${deckManagerTileNameHTML(item)}${item.sourceCardKey?`<small class="dm-card-id">${escapeHTML(item.sourceCardKey)}</small>`:''}</button><div class="dm-catalog-card-footer">${deckManager.catalogMode==='channel'?`<button class="small ${quantity?'dm-added':''}" data-action="manager-set-channel" data-definition="${escapeHTML(id)}">${quantity?'選択中':'設定'}</button>`:`<button class="small" data-action="manager-minus" data-definition="${escapeHTML(id)}" aria-label="${escapeHTML(item.name)}を1枚減らす" ${quantity?'':'disabled'}>−</button><span>${quantity}枚</span><button class="small" data-action="manager-plus" data-definition="${escapeHTML(id)}" aria-label="${escapeHTML(item.name)}を1枚追加" ${deckManagerCanAdd(id,quantity)?'':'disabled'}>＋</button>`}</div></article>`
  }).join('')
  return `<div class="dm-catalog-count">${entries.length}種類${entries.length?` · ${start+1}〜${Math.min(start+deckManagerPageSize,entries.length)}`:''}</div><div class="dm-catalog-grid">${tiles||`<p class="dm-catalog-empty">${deckManager.catalogMode==='main'&&deckManager.channelOnly&&!deckManagerChannel(deckManager.draft.channelDefinition)?'チャンネルを選択してください。':deckManagerEntries().length?'条件に一致するカードがありません。':'カード登録からカードを用意してください。'}</p>`}</div><div class="dm-catalog-pagination"><button class="small" data-action="manager-page-prev" ${deckManager.page?'':'disabled'}>前へ</button><span>${deckManager.page+1} / ${pages}</span><button class="small" data-action="manager-page-next" ${deckManager.page+1<pages?'':'disabled'}>次へ</button></div>`
 }
@@ -219,6 +231,10 @@ function deckManagerSetQuantity(id,value,rerender=true){
  if(!deckManager.draft||!deckManagerMain(id))return false
  const count=deckManagerCount(value),list=deckManager.draft.list,old=list.find(entry=>entry.definition===id)
  if((old?.count||0)===count)return true
+ if(count>(old?.count||0)&&count>deckCardCountLimit(state.catalog,list,id)){
+  notify('アイリスワンはデッキに合計1枚までです。',true)
+  return false
+ }
  if(count+deckManagerTotal(deckManager.draft)-(old?.count||0)>500){notify('デッキは500枚までです。',true);return false}
  if(old&&count)old.count=count;else if(old)list.splice(list.indexOf(old),1);else if(count)list.push({definition:id,count})
  deckManager.selected=id
@@ -292,7 +308,10 @@ function handleDeckManagerAction(action,button){
   if(!storageReady||deckManager.pickerLoading||replay.mode==='replay')return true
   const deck=deckManagerDecks().find(item=>item.id===button.dataset.deckId);if(!deck){notify('このデッキが見つかりません。',true);renderSavedDeckSelector();return true}
   const player=playerIds.includes(button.dataset.player)?button.dataset.player:deckManager.pickerPlayer,list=(deck.list||[]).filter(item=>deckManagerMain(item.definition)),channel=deckManagerChannel(deck.channelDefinition)?deck.channelDefinition:''
-  if(transact(`「${deck.name}」を${state.players[player].name}の山札に設定`,()=>createDeckRaw(player,list,channel))){closeModal();notify(`「${deck.name}」を設定しました。`)}return true
+  if(transact(`「${deck.name}」を${state.players[player].name}の山札に設定`,()=>{
+   validateIrisOneDeck(state.catalog,list)
+   createDeckRaw(player,list,channel)
+  })){closeModal();notify(`「${deck.name}」を設定しました。`)}return true
  }
  if(action==='catalog-return-decks'){if(appPage==='deck'){closeModal(false);renderDeckPage()}else goToDeckManager();return true}
  if(appPage!=='deck')return false
