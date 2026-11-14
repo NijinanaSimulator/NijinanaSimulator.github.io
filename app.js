@@ -1208,7 +1208,7 @@ function draw(player = state.active, requested = playerDeckCount(player, "drawCo
 }
 function shuffleDeck(player = state.active) {
     if (!state.locations[player].deck.length) return notify("山札が空です。")
-    transact(`${state.players[player].name}の山札をシャッフル`, () => {
+    return transact(`${state.players[player].name}の山札をシャッフル`, () => {
         shuffleArray(state.locations[player].deck)
         for (const id of state.locations[player].deck) state.cards[id].faceDown = true
     })
@@ -1219,7 +1219,9 @@ function operateSelectedDeck(operation, player, requested) {
     const deck = state.locations[player].deck
     if (!deck.length) return notify("山札が空です。")
     if (operation === "peek") return inspectZone(player, "deck", count)
-    if (operation === "draw") draw(player, count)
+    if (operation === "shuffle") {
+        if (!shuffleDeck(player)) return
+    } else if (operation === "draw") draw(player, count)
     else if (operation === "discard") {
         const moving = deck.slice(0, count)
         if (!transact(`${state.players[player].name}の山札の上から${moving.length}枚をログへ移動`, () => moveRaw(moving, player, "discard"))) return
@@ -1789,7 +1791,8 @@ function selectedPowerHTML(ids) {
 function selectedDeckControls(ids) {
     const players = [...new Set(ids.map(id => where(id).player))]
     const operations = [["draw", "drawCount", "ドローする枚数", "枚ドロー"], ["peek", "peekCount", "上から確認する枚数", "枚確認"], ["discard", "discardCount", "上からログへ送る枚数", "枚ログへ"]]
-    return players.map(player => `<section class="control-group"><h3>${players.length > 1 ? `${escapeHTML(state.players[player].name)}の` : ""}山札の操作</h3>${operations.map(([operation, key, label, button]) => `<div class="control-row deck-operation-row">${operation === "draw" ? "" : "<span>上から</span>"}<input id="selectedDeck_${player}_${operation}" data-deck-count="${key}" aria-label="${label}" type="number" min="1" max="500" value="${ui[key]}"><button data-action="selected-deck-${operation}" data-player="${player}" class="${operation === "draw" ? "primary " : ""}grow">${button}</button></div>`).join("")}</section>`).join("")
+    return players.map(player => `<section class="control-group"><h3>${players.length > 1 ? `${escapeHTML(state.players[player].name)}の` : ""}山札の操作</h3>${operations.map(([operation, key, label, button]) => `<div class="control-row deck-operation-row">${operation === "draw" ? "" : "<span>上から</span>"}<input id="selectedDeck_${player}_${operation}" data-deck-count="${key}" aria-label="${label}" type="number" min="1" max="500" value="${ui[key]}"><button data-action="selected-deck-${operation}" data-player="${player}" class="${operation === "draw" ? "primary " : ""}grow">${button}</button></div>`).join("")}
+        <div class="control-row"><button data-action="selected-deck-shuffle" data-player="${player}" class="grow">シャッフル</button></div></section>`).join("")
 }
 function renderSelection() {
     const ids = selectedIds()
@@ -2346,6 +2349,34 @@ function handleDeckEditorAction(action, button) {
 let deckExportPreviewURL = ""
 let deckExportFileName = ""
 const deckExportColors = {R: "#ed2946", O: "#ff8918", Y: "#f3c900", G: "#12ae50", B: "#149bea", I: "#3f49dd", V: "#9c35dc"}
+const deckExportLevelColumnsPerRow = 12
+const deckExportLevelRowHeight = 140
+
+function deckColorCounts(entries) {
+    const counts = Object.fromEntries(nijiColors.map(color => [color, 0]))
+    for (const {item, count} of entries) {
+        for (const color of liverCardColors(item)) counts[color] += count
+    }
+    return counts
+}
+
+function deckLevelColumns(entries) {
+    const counts = new Map()
+    let unknown = 0
+    for (const {item, count} of entries) {
+        if (!count) continue
+        const level = item.cost
+        if (Number.isInteger(level) && level >= 0 && level <= 999) counts.set(level, (counts.get(level) || 0) + count)
+        else unknown += count
+    }
+    const highest = Math.max(7, ...counts.keys())
+    const levels = highest <= 12
+        ? Array.from({length: highest + 1}, (_, level) => level)
+        : [...new Set([0, 1, 2, 3, 4, 5, 6, 7, ...counts.keys()])].sort((a, b) => a - b)
+    const columns = levels.map(level => ({label: String(level), count: counts.get(level) || 0}))
+    if (unknown) columns.push({label: "未設定", count: unknown})
+    return columns
+}
 
 function deckExportBox(context, x, y, width, height, radius, fill, stroke = "") {
     const r = Math.min(radius, width / 2, height / 2)
@@ -2399,6 +2430,50 @@ function deckExportBadge(context, x, y, count) {
     context.fillStyle = "#fff"
     context.textAlign = "center"
     context.fillText(label, x + width / 2, y + 26)
+    context.restore()
+}
+
+function drawDeckExportDistributions(context, colorCounts, levelColumns, x, y, width) {
+    context.save()
+    const colorWidth = 304
+    const curveOffset = colorWidth + 20
+    const curveX = x + curveOffset
+    const curveWidth = width - curveOffset
+    context.fillStyle = "#53738b"
+    context.font = "800 23px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    context.fillText("色", x, y)
+    context.fillText("コストカーブ（レベル別枚数）", curveX, y)
+
+    const colorColumnWidth = colorWidth / 4
+    for (const [index, color] of nijiColors.entries()) {
+        const left = x + (index % 4) * colorColumnWidth
+        const top = y + 18 + Math.floor(index / 4) * 66
+        deckExportBox(context, left, top, colorColumnWidth - 6, 58, 8, "#edf3f8")
+        deckExportBox(context, left + 8, top + 19, 20, 20, 10, deckExportColors[color])
+        context.fillStyle = "#31536e"
+        context.font = "700 23px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        context.fillText(String(colorCounts[color]), left + 33, top + 37, colorColumnWidth - 43)
+    }
+
+    const maxCount = Math.max(1, ...levelColumns.map(({count}) => count))
+    const columnWidth = curveWidth / Math.min(levelColumns.length, deckExportLevelColumnsPerRow)
+    const barWidth = columnWidth - 5
+    context.textAlign = "center"
+    context.font = "650 19px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+    for (const [index, {label, count}] of levelColumns.entries()) {
+        const center = curveX + (index % deckExportLevelColumnsPerRow + .5) * columnWidth
+        const bottom = y + 133 + Math.floor(index / deckExportLevelColumnsPerRow) * deckExportLevelRowHeight
+        const barHeight = count ? Math.max(2, 84 * count / maxCount) : 0
+        context.fillStyle = "#dce6ee"
+        context.fillRect(center - barWidth / 2, bottom, barWidth, 1)
+        if (barHeight) {
+            context.fillStyle = "#4c81a6"
+            context.fillRect(center - barWidth / 2, bottom - barHeight, barWidth, barHeight)
+        }
+        context.fillStyle = "#31536e"
+        context.fillText(String(count), center, bottom - barHeight - 6)
+        context.fillText(label, center, bottom + 25, columnWidth - 4)
+    }
     context.restore()
 }
 
@@ -2503,7 +2578,10 @@ async function deckExportCard(context, item, x, y, width, height, count) {
 
 async function buildDeckExportCanvas(player, entries, channel, titleOverride = "") {
     const width = 1800, margin = 54, visualWidth = 1162, listX = 1246, listWidth = 500
-    const gridX = 79, gridY = 509, columns = 7, cardWidth = 140, cardHeight = 196, columnStep = 162, rowStep = 226
+    const colorCounts = deckColorCounts(entries), levelColumns = deckLevelColumns(entries)
+    const extraChartHeight = (Math.ceil(levelColumns.length / deckExportLevelColumnsPerRow) - 1) * deckExportLevelRowHeight
+    const mainY = 423 + extraChartHeight
+    const gridX = 79, gridY = mainY + 86, columns = 7, cardWidth = 140, cardHeight = 196, columnStep = 162, rowStep = 226
     const listY = 490, dense = entries.length > 120
     const measure = document.createElement("canvas").getContext("2d")
     const rows = entries.map(({item}) => {
@@ -2544,13 +2622,13 @@ async function buildDeckExportCanvas(player, entries, channel, titleOverride = "
         context.fillStyle = deckExportColors[color]
         context.fillRect(index * width / 7, 124, Math.ceil(width / 7), 5)
     }
-    deckExportBox(context, margin, 158, visualWidth, 247, 16, "#fff", "#d5e2eb")
-    deckExportBox(context, margin, 423, visualWidth, height - 483, 16, "#fff", "#d5e2eb")
+    deckExportBox(context, margin, 158, visualWidth, mainY - 176, 16, "#fff", "#d5e2eb")
+    deckExportBox(context, margin, mainY, visualWidth, height - mainY - 60, 16, "#fff", "#d5e2eb")
     deckExportBox(context, listX, 158, listWidth, height - 218, 16, "#fff", "#d5e2eb")
     context.fillStyle = "#53738b"
     context.font = "800 19px system-ui, 'Yu Gothic', Meiryo, sans-serif"
     context.fillText("CHANNEL / チャンネル", margin + 30, 196)
-    context.fillText("DECK / 山札", margin + 30, 464)
+    context.fillText("DECK / 山札", margin + 30, mainY + 41)
     context.fillText("CARD LIST / カード一覧", listX + 27, 200)
     context.font = "700 20px system-ui, 'Yu Gothic', Meiryo, sans-serif"
     context.fillStyle = "#355773"
@@ -2565,14 +2643,6 @@ async function buildDeckExportCanvas(player, entries, channel, titleOverride = "
     if (channel) {
         await deckExportCard(context, channel, margin + 31, 213, 278, 176, 1)
         context.fillStyle = "#31536e"
-        context.font = "800 31px system-ui, 'Yu Gothic', Meiryo, sans-serif"
-        deckExportText(context, channel.name, margin + 348, 274, 755, 41, 2)
-        if (channel.sourceCardKey) {
-            context.fillStyle = "#8096a6"
-            context.font = "500 18px system-ui, 'Yu Gothic', Meiryo, sans-serif"
-            context.fillText(channel.sourceCardKey, margin + 350, 374, 740)
-        }
-        context.fillStyle = "#31536e"
         context.font = "700 22px system-ui, 'Yu Gothic', Meiryo, sans-serif"
         deckExportText(context, channel.name, listX + 28, 307, 350, 28, 2)
         context.fillStyle = "#788fa2"
@@ -2582,15 +2652,15 @@ async function buildDeckExportCanvas(player, entries, channel, titleOverride = "
     } else {
         deckExportBox(context, margin + 31, 213, 278, 176, 8, "#f3f7fa", "#d5e2eb")
         context.fillStyle = "#899dad"
-        context.font = "700 26px system-ui, 'Yu Gothic', Meiryo, sans-serif"
-        context.fillText("チャンネル未設定", margin + 350, 316)
         context.font = "600 20px system-ui, 'Yu Gothic', Meiryo, sans-serif"
+        context.fillText("チャンネル未設定", margin + 68, 308)
         context.fillText("未設定", listX + 28, 308)
     }
+    drawDeckExportDistributions(context, colorCounts, levelColumns, margin + 346, 227, visualWidth - 376)
     if (!entries.length) {
         context.fillStyle = "#899dad"
         context.font = "600 24px system-ui, 'Yu Gothic', Meiryo, sans-serif"
-        context.fillText("山札にカードがありません", margin + 30, 563)
+        context.fillText("山札にカードがありません", margin + 30, mainY + 140)
     }
     for (const [index, entry] of entries.entries()) {
         const x = gridX + index % columns * columnStep
@@ -3190,7 +3260,7 @@ function handleAction(button) {
             renderZoneInspector()
         }
     }
-    else if (["selected-deck-draw", "selected-deck-peek", "selected-deck-discard"].includes(action)) {
+    else if (["selected-deck-draw", "selected-deck-peek", "selected-deck-discard", "selected-deck-shuffle"].includes(action)) {
         const operation = action.slice("selected-deck-".length)
         const player = button.dataset.player
         operateSelectedDeck(operation, player, byId(`selectedDeck_${player}_${operation}`)?.value)
