@@ -122,33 +122,21 @@ function deckManagerDetailHTML(){
  const colors=Array.isArray(item.colors)?item.colors.map(color=>`<span class="dm-color-dot dm-color-${color.toLowerCase()}" title="${deckManagerColorNames[color]||color}" aria-label="${deckManagerColorNames[color]||color}"></span>`).join(''):''
  return `<div class="dm-detail-heading"><strong>${escapeHTML(item.name)}</strong>${item.sourceCardKey?`<span class="dm-detail-id">ID: ${escapeHTML(item.sourceCardKey)}</span>`:''}${deckManagerIrisOneBadge(item)}</div><div class="dm-detail-image ${channel?'dm-detail-channel':''}">${deckDefinitionFaceHTML(item)}</div><p class="dm-detail-summary">${escapeHTML(deckManagerCardSummary(item))}</p>${cardTagsHTML(item,'dm-detail-tags')}${cardRestrictionHTML(item,'dm-detail-restriction')}${colors?`<div class="dm-detail-colors">${colors}</div>`:''}<div class="dm-detail-actions">${channel?`<button data-action="manager-set-channel" data-definition="${escapeHTML(id)}" class="primary">${quantity?'選択中のチャンネル':'チャンネルに設定'}</button>${quantity?'<button data-action="manager-clear-channel">チャンネルを外す</button>':''}`:`<button data-action="manager-minus" data-definition="${escapeHTML(id)}" ${quantity?'':'disabled'}>−1</button><span>${quantity}枚</span><button data-action="manager-plus" data-definition="${escapeHTML(id)}" class="primary" ${deckManagerCanAdd(id,quantity)?'':'disabled'}>＋1</button>`}</div><div class="dm-detail-effect"><h3>効果・説明</h3><p>${escapeHTML(item.text||'効果・説明は未登録です。')}</p></div>`
 }
+function deckManagerDistributionEntries(){
+ return (deckManager.draft?.list||[]).filter(entry=>deckManagerMain(entry.definition)).map(entry=>({item:state.catalog[entry.definition],count:deckManagerCount(entry.count)}))
+}
 function deckManagerColorCountsHTML(){
- const counts=Object.fromEntries(nijiColors.map(color=>[color,0]))
- for(const entry of deckManager.draft?.list||[]){
-  const item=state.catalog[entry.definition]
-  if(!item)continue
-  for(const color of liverCardColors(item))counts[color]+=deckManagerCount(entry.count)
- }
+ const counts=deckColorCounts(deckManagerDistributionEntries())
  return nijiColors.map(color=>`<span class="dm-deck-color-count" role="listitem" title="${deckManagerColorNames[color]}：${counts[color]}枚"><span class="dm-color-dot dm-color-${color.toLowerCase()}" aria-hidden="true"></span><span class="sr-only">${deckManagerColorNames[color]}</span><span><strong>${counts[color]}</strong></span></span>`).join('')
 }
 function deckManagerCostCurveHTML(){
- const counts=new Map();let unknown=0
- for(const entry of deckManager.draft?.list||[]){
-  if(!deckManagerMain(entry.definition))continue
-  const item=state.catalog[entry.definition],count=deckManagerCount(entry.count)
-  if(!count)continue
-  if(Number.isInteger(item.cost)&&item.cost>=0&&item.cost<=999)counts.set(item.cost,(counts.get(item.cost)||0)+count)
-  else unknown+=count
- }
- const highest=Math.max(7,...counts.keys()),levels=highest<=12?Array.from({length:highest+1},(_,level)=>level):[...new Set([0,1,2,3,4,5,6,7,...counts.keys()])].sort((a,b)=>a-b)
- const columns=levels.map(level=>({label:String(level),count:counts.get(level)||0}))
- if(unknown)columns.push({label:'未設定',count:unknown})
+ const columns=deckLevelColumns(deckManagerDistributionEntries()),unknown=columns.at(-1).label==='未設定'
  const maximum=Math.max(1,...columns.map(column=>column.count))
  const bars=columns.map(({label,count})=>{
   const title=`${label==='未設定'?'レベル未設定':`レベル ${label}`}：${count}枚`
   return `<div class="dm-cost-column" role="listitem" aria-label="${escapeHTML(title)}" title="${escapeHTML(title)}"><span class="dm-cost-value" aria-hidden="true">${count}</span><span class="dm-cost-track" aria-hidden="true"><span class="dm-cost-fill" style="height:${count/maximum*100}%"></span></span><span class="dm-cost-label" aria-hidden="true">${label}</span></div>`
  }).join('')
- return `<h3>レベル分布</h3><div class="dm-cost-chart${unknown?" has-unknown":""}" role="list" aria-label="デッキ内のレベル別枚数" style="--dm-cost-columns:${levels.length}">${bars}</div>`
+ return `<h3>レベル分布</h3><div class="dm-cost-chart${unknown?" has-unknown":""}" role="list" aria-label="デッキ内のレベル別枚数" style="--dm-cost-columns:${columns.length-Number(unknown)}">${bars}</div>`
 }
 function deckManagerDeckContentsHTML(){
  const draft=deckManager.draft,channel=deckManagerChannel(draft.channelDefinition)?state.catalog[draft.channelDefinition]:null,entries=draft.list.filter(entry=>deckManagerMain(entry.definition)&&entry.count>0)
